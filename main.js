@@ -251,8 +251,45 @@ const SPRITES = {
   cat:      { img: null, loaded: false },
   cat_mimi: { img: null, loaded: false },
   cat_hart: { img: null, loaded: false },
-  grass:    { img: null, loaded: false }
+  grass:    { img: null, loaded: false },
+  // 屋顶 / 水泥地 / 夜晚草地效果一般，先注释保留
+  // bg_roof:        { img: null, loaded: false },
+  // bg_concrete:    { img: null, loaded: false },
+  // bg_grass_night: { img: null, loaded: false },
+  bg_beach:       { img: null, loaded: false }
 };
+
+// ===== 背景配置 =====
+// 逻辑名 → SPRITES 里的 key
+const BACKGROUND_KEYS = {
+  grass:       'grass',
+  roof:        'bg_roof',
+  concrete:    'bg_concrete',
+  grass_night: 'bg_grass_night',
+  beach:       'bg_beach'
+};
+
+// 教学 6 关依次使用（想改哪关背景就改这里）
+const STAGE_BACKGROUNDS = [
+  'grass',  // 第 1 关
+  'grass',  // 第 2 关
+  'beach',  // 第 3 关
+  'beach',  // 第 4 关
+  'grass',  // 第 5 关
+  'grass'   // 第 6 关
+];
+
+// 无尽模式每 5 波循环一次
+const ENDLESS_BACKGROUNDS = ['grass', 'beach'];
+
+// 当前背景逻辑名
+let currentBgKey = 'grass';
+
+// 切换背景
+function setBackground(key){
+  if(!BACKGROUND_KEYS[key]) key = 'grass';
+  currentBgKey = key;
+}
 const ENEMY_SPRITE_KEYS = ['zombie','runner','brute','spitter','skeleton','armored','elite'];
 for(const k of ENEMY_SPRITE_KEYS){
   SPRITES['enemy_' + k] = { img: null, loaded: false };
@@ -316,6 +353,21 @@ function initSprites(){
       grassPattern = ctx.createPattern(img, 'repeat');
     }
   });
+  
+  // ===== 沙滩背景（屋顶 / 水泥地 / 夜晚草地暂不使用）=====
+  loadImage('images/bg_beach.png', (img, ok) => {
+    if(ok){ SPRITES.bg_beach.img = img; SPRITES.bg_beach.loaded = true; }
+  });
+
+  // loadImage('images/bg_roof.png', (img, ok) => {
+  //   if(ok){ SPRITES.bg_roof.img = img; SPRITES.bg_roof.loaded = true; }
+  // });
+  // loadImage('images/bg_concrete.png', (img, ok) => {
+  //   if(ok){ SPRITES.bg_concrete.img = img; SPRITES.bg_concrete.loaded = true; }
+  // });
+  // loadImage('images/bg_grass_night.png', (img, ok) => {
+  //   if(ok){ SPRITES.bg_grass_night.img = img; SPRITES.bg_grass_night.loaded = true; }
+  // });
 
   for(const k of ENEMY_SPRITE_KEYS){
     loadImage('images/enemy_' + k + '.png', (img, ok) => {
@@ -1411,10 +1463,10 @@ function onPointerDown(e){
     stageKillCount = 0;
 
     if(info.isLastStage){
-      // 进入无尽模式前，先播一次「玩法说明入口」指引
-      markTutorialDone();          // ★ 若上一轮已加过这行，保留即可；没加就现在补上
+      markTutorialDone();
       currentStage = 0;
       waveInStage = 0;
+      setBackground(ENDLESS_BACKGROUNDS[0]);   // ★ 先切背景
       banner = { text: '教学完成！进入无尽模式', life: 2.5 };
       waveBreakTimer = 2.5;
       stageClearInfo = null;
@@ -1430,6 +1482,7 @@ function onPointerDown(e){
     // 进入下一关
     currentStage++;
     waveInStage = 0;
+    setBackground(STAGE_BACKGROUNDS[currentStage - 1] || 'grass');  // ★ 先切背景
     banner = { text: '第 ' + currentStage + ' 关  ·  第 1 / ' + STAGE_WAVES + ' 波', life: 2.0 };
     waveBreakTimer = 2.0;
     stageClearInfo = null;
@@ -2644,6 +2697,7 @@ function reset(){
 
   generateGroundDecorations();
   updateCameraInstant();
+  setBackground('grass');   // ★ 每次新开局先回到草地
 
   if(hasDoneTutorial()){
     // ===== 老玩家：跳过教程，直接进无尽模式 =====
@@ -2676,8 +2730,7 @@ function generateGroundDecorations(){
     let type;
     if(roll < 0.58) type = 'patch';
     else if(roll < 0.82) type = 'tuft';
-    else if(roll < 0.95) type = 'rock';
-    else type = 'flower';
+    else type = 'flower';   // ★ 去掉 rock，剩余都归花朵
     groundDecorations.push({
       x: Math.random() * WORLD.w,
       y: Math.random() * WORLD.h,
@@ -3085,6 +3138,15 @@ function startWave(n){
   waveActive = true;
 
   const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
+
+  // ===== 切背景 =====
+  if(isTutorial){
+    setBackground(STAGE_BACKGROUNDS[currentStage - 1] || 'grass');
+  } else {
+    const idx = Math.floor((Math.max(1, n) - 1) / 5) % ENDLESS_BACKGROUNDS.length;
+    setBackground(ENDLESS_BACKGROUNDS[idx]);
+  }
+
   let count, interval, bannerText;
 
   if(isTutorial){
@@ -4309,11 +4371,26 @@ function drawGroundDecoration(d){
 }
 
 function drawGround(){
-  if(grassPattern){
+  // 根据 currentBgKey 拿对应背景图
+  const spriteKey = BACKGROUND_KEYS[currentBgKey] || 'grass';
+  const spr = SPRITES[spriteKey];
+
+  let pattern = null;
+  if(spr && spr.loaded && spr.img){
+    if(!spr.pattern){
+      spr.pattern = ctx.createPattern(spr.img, 'repeat');
+    }
+    pattern = spr.pattern;
+  } else {
+    // 加载失败 → 回退草地
+    pattern = grassPattern;
+  }
+
+  if(pattern){
     const gs = 0.6;
     ctx.save();
     ctx.scale(gs, gs);
-    ctx.fillStyle = grassPattern;
+    ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, WORLD.w / gs, WORLD.h / gs);
     ctx.restore();
   } else {
@@ -4321,8 +4398,11 @@ function drawGround(){
     ctx.fillRect(0, 0, WORLD.w, WORLD.h);
   }
 
-  for(const d of groundDecorations){
-    drawGroundDecoration(d);
+  // ★ 装饰只画在草地上（花朵、草丛、补丁）
+  if(currentBgKey === 'grass'){
+    for(const d of groundDecorations){
+      drawGroundDecoration(d);
+    }
   }
 
   ctx.strokeStyle = 'rgba(120,200,140,0.22)';
