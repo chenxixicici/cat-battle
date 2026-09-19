@@ -254,6 +254,8 @@ const SPRITES = {
   cat:      { img: null, loaded: false },
   cat_mimi: { img: null, loaded: false },
   cat_hart: { img: null, loaded: false },
+  catbro:   { img: null, loaded: false },
+  catbro2:  { img: null, loaded: false },
   grass:    { img: null, loaded: false },
   // 屋顶 / 水泥地 / 夜晚草地效果一般，先注释保留
   // bg_roof:        { img: null, loaded: false },
@@ -347,6 +349,12 @@ function initSprites(){
   });
   loadImage('images/cat_hart.png', (img, ok) => {
     if(ok){ SPRITES.cat_hart.img = img; SPRITES.cat_hart.loaded = true; }
+  });
+  loadImage('images/catbro.png', (img, ok) => {
+    if(ok){ SPRITES.catbro.img = img; SPRITES.catbro.loaded = true; }
+  });
+  loadImage('images/catbro2.png', (img, ok) => {
+    if(ok){ SPRITES.catbro2.img = img; SPRITES.catbro2.loaded = true; }
   });
 
   loadImage(GRASS_LOCAL_PATH, (img, ok) => {
@@ -519,7 +527,8 @@ function syncBGM(){
     state === 'help' || (state === 'leaderboard' && lbFrom === 'menu');
   const isGameLike =
     state === 'playing' || state === 'paused' ||
-    state === 'confirm' || state === 'buff' || state === 'victory';
+    state === 'confirm' || state === 'buff' || state === 'victory' ||
+    state === 'catbro';
 
   if(isMenuLike){
     if(!menuBgm.intervalId) startMenuBGM();
@@ -1693,6 +1702,36 @@ function onPointerDown(e){
     }
     return;
   }
+  if(state === 'catbro'){
+    for(const c of catBroCards){
+      if(p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h){
+        const idx = catBroSelectedSkills.indexOf(c.skill);
+        if(idx >= 0){
+          catBroSelectedSkills.splice(idx, 1);
+        } else if(catBroSelectedSkills.length < 2){
+          catBroSelectedSkills.push(c.skill);
+        }
+        return;
+      }
+    }
+    const cb = CATBRO_CONFIRM_BTN;
+    if(p.x >= cb.x - cb.w/2 && p.x <= cb.x + cb.w/2 &&
+       p.y >= cb.y - cb.h/2 && p.y <= cb.y + cb.h/2){
+      if(catBroSelectedSkills.length >= 1){
+        // 把选中的技能从主角身上移除（主角不能再使用）
+        for(const sk of catBroSelectedSkills){
+          catBroTakenSkills.push(sk);
+        }
+        recalcPlayerStats();
+        initCatBro(catBroSelectedSkills.slice());
+        state = 'playing';
+        startWave(wave);
+        last = performance.now();
+      }
+      return;
+    }
+    return;
+  }
   if(state !== 'playing') return;
 
   if(Math.hypot(p.x - AVATAR.x, p.y - AVATAR.y) < AVATAR.r + 14){
@@ -2579,6 +2618,34 @@ let isSecondPick = false;       // 当前是否处于第二次选择
 let airstrikeBombs = [];     // 正在下落的炸弹
 let groundDecorations = [];
 
+// ============ 猫小弟 ============
+let catBros = [];             // 所有猫小弟
+let catBroSpawnCount = 0;     // 已经触发过几次
+let catBroSelectedSkills = [];
+let catBroCards = [];
+let catBroTakenSkills = [];   // 已被转给猫小弟的技能，主角不能再使用
+const CATBRO_CONFIRM_BTN = { x: W/2, y: H - 120, w: 300, h: 72 };
+const CATBRO_SKILL_INFO = {
+  can:       { name:'罐头',  color:'#ff9f6b', icon:'canpower',       desc:'每 6 秒自动投掷罐头' },
+  orb:       { name:'毛球',  color:'#ffb0d0', icon:'orb_count',      desc:'毛球环绕猫小弟旋转' },
+  laser:     { name:'激光',  color:'#88eeff', icon:'laserpower',     desc:'每 14 秒爆发一道激光' },
+  missile:   { name:'导弹',  color:'#ff8a3c', icon:'missile_damage', desc:'每 8 秒发射两枚导弹' },
+  airstrike: { name:'轰炸',  color:'#ff6b4a', icon:'airstrike',      desc:'每 9 秒空投两颗炸弹' }
+};
+const CATBRO_SKILL_CD = {
+  can: 6, orb: 0, laser: 14, missile: 8, airstrike: 9
+};
+
+// 猫小弟专属台词库
+const CATBRO_LINES = {
+  join:      ['喵！我来帮你！', '小弟来也！', '大哥我来了喵~', '一起打怪喵！'],
+  can:       ['接招！罐头炸弹！', '砸死你们喵！', '喵！看我的罐头！'],
+  orb:       ['毛球起飞！', '看我的毛球！', '转圈圈喵！'],
+  laser:     ['激光锁定！', '咻——！', '烧你们喵！'],
+  missile:   ['导弹发射！', '追踪导弹喵！', '锁定目标！'],
+  airstrike: ['空袭来咯！', '炸弹雨！', '天上掉罐头喵！']
+};
+
 // ============ 无尽模式曲线 ============
 function getEndlessHpScale(n){
   if(n <= 10)  return 1.0 + (n - 1) * 0.10;
@@ -2762,6 +2829,11 @@ function reset(){
   airstrikeTimer = 0;
   airstrikeBombs = []; voiceCd = 0;
   nextEnemyId = 1;
+  catBros = [];
+  catBroSpawnCount = 0;
+  catBroSelectedSkills = [];
+  catBroCards = [];
+  catBroTakenSkills = [];
   waveTotal = 0;
   buffChoices = []; buffCards = [];
   orbBuffGiven = false;
@@ -2850,8 +2922,8 @@ function recalcPlayerStats(){
   player.pierce            = 1 + (b.pierce || 0);
   player.multishot         = (b.multishot || 0);
 
-  // 毛球：未解锁则数量为 0
-  if(unlockedWeapons.orb){
+  // 毛球：未解锁或被传给猫小弟则数量为 0
+  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0){
     player.orbCount = 3 + (b.orb_count || 0);
   } else {
     player.orbCount = 0;
@@ -3521,6 +3593,7 @@ function findHighestHpEnemy(){
 function fireMissile(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.missile) return;
+  if(catBroTakenSkills.indexOf('missile') >= 0) return;
   if(player.missileCharges <= 0) return;
   if(enemies.length === 0) return;
 
@@ -3694,6 +3767,7 @@ function drawMissiles(){
 function tryThrowCan(){
   if(state !== 'playing' || !player) return false;
   if(!unlockedWeapons.can) return false;
+  if(catBroTakenSkills.indexOf('can') >= 0) return false;
   let best = null, bd = 1e9;
   for(const e of enemies){
     if(e.dead) continue;
@@ -3715,8 +3789,9 @@ function tryThrowCan(){
   return true;
 }
 function explodeCan(c){
-  const R = player.blastRadius;
-  const DMG = player.canDamage;
+  const isFromBro = !!c.fromCatBro;
+  const R   = player.blastRadius * (isFromBro ? 0.85 : 1);
+  const DMG = player.canDamage   * (isFromBro ? 0.6  : 1);
   rings.push({ x: c.tx, y: c.ty, maxR: R, life: 0.45, t: 0.45, color: '#ffcf5c' });
   cam.shake = Math.max(cam.shake, 14);
   sfx('boom');
@@ -3773,6 +3848,7 @@ const LASER_COOLDOWN_MAX = 10;  // 冷却总时长
 function fireLaser(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.laser) return;
+  if(catBroTakenSkills.indexOf('laser') >= 0) return;
   if(laser.active) return;
   if(laserCooldown > 0) return;
   if(enemies.length === 0) return;
@@ -3959,7 +4035,7 @@ function update(dt){
 
     if(state === 'boot' || state === 'menu' || state === 'catselect' ||
        state === 'help' || state === 'victory' ||
-       state === 'stageclear' || state === 'tutorial'){
+       state === 'stageclear' || state === 'tutorial' || state === 'catbro'){
       gameTime += dt;
     }
 
@@ -4073,6 +4149,7 @@ function update(dt){
   }
 
   updateOrbs(dt);
+  updateCatBro(dt);
 
   player.fireCd -= dt;
   const FIRE_RANGE = FIRE_BASE_RANGE * player.bulletRangeMult;
@@ -4426,6 +4503,14 @@ function update(dt){
       if(currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE){
         waveInStage++;
       }
+      // 无尽模式第 1 波、第 2 波前各触发一次猫小弟选择
+      if(currentStage === 0 && wave <= 2 && catBroSpawnCount < wave){
+        catBroSpawnCount++;
+        catBroSelectedSkills = [];
+        state = 'catbro';
+        last = performance.now();
+        return;
+      }
       startWave(wave);
     }
   }
@@ -4685,16 +4770,16 @@ function drawCat(){
 }
 
 // ================= 气泡 =================
-function drawBubble(){
-  if(bubble.life <= 0 || !player) return;
-  const a = Math.min(1, bubble.life * 1.8);
-  const px = player.x;
-  const py = player.y - player.r - 32;
+function drawBubbleAt(b, x, y, r){
+  if(b.life <= 0) return;
+  const a = Math.min(1, b.life * 1.8);
+  const px = x;
+  const py = y - r - 32;
 
   ctx.save();
   ctx.globalAlpha = a;
   ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(bubble.text).width;
+  const tw = ctx.measureText(b.text).width;
   const w = tw + 32, h = 36;
 
   rr(px - w/2, py - h, w, h, 10);
@@ -4716,9 +4801,21 @@ function drawBubble(){
   ctx.fillStyle = '#c8f5d8';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(bubble.text, px, py - h/2 + 1);
+  ctx.fillText(b.text, px, py - h/2 + 1);
   ctx.textBaseline = 'alphabetic';
   ctx.restore();
+}
+
+function drawBubble(){
+  if(!player) return;
+  drawBubbleAt(bubble, player.x, player.y, player.r);
+}
+
+function drawCatBroBubble(){
+  if(!player) return;
+  for(const bro of catBros){
+    drawBubbleAt(bro.bubble, bro.x, bro.y, bro.r || player.r * 0.75);
+  }
 }
 
 // ================= 敌人 =================
@@ -4943,6 +5040,400 @@ function drawEnemy(e){
   }
 }
 
+// ================= 猫小弟 =================
+function initCatBro(skills){
+  const ang0 = player.facing + Math.PI + catBros.length * 0.9;
+  const spriteKey = catBros.length === 0 ? 'catbro' : 'catbro2';
+  const bro = {
+    spriteKey: spriteKey,
+    r: player.r * 0.75,
+    x: player.x + Math.cos(ang0) * 250,
+    y: player.y + Math.sin(ang0) * 250,
+    facing: player.facing,
+    skills: skills,
+    skillCd: {},
+    orbAngle: 0,
+    orbHitCd: new Map(),
+    laserFx: null,
+    wanderTimer: 0,
+    wanderAngle: ang0,
+    wanderDist:  250,
+    speakCd: 0,
+    bubble: { text:'', life:0, maxLife:2.2 }
+  };
+  for(const s of skills){
+    bro.skillCd[s] = 1.0;
+  }
+  catBros.push(bro);
+  sayCatBro(bro, randLine(CATBRO_LINES.join), true);
+  bro.speakCd = 3.0;
+}
+
+function sayCatBro(bro, text, priority){
+  if(!bro) return;
+  if(!priority && bro.speakCd > 0) return;
+  bro.bubble.text = text;
+  bro.bubble.life = 2.2; bro.bubble.maxLife = 2.2;
+  bro.speakCd = priority ? 2.5 : 4.0;
+}
+
+function updateCatBro(dt){
+  if(!player) return;
+  if(state !== 'playing') return;
+  for(const bro of catBros){
+    updateOneCatBro(bro, dt);
+  }
+}
+
+function updateOneCatBro(catBro, dt){
+  if(catBro.speakCd > 0) catBro.speakCd -= dt;
+  if(catBro.bubble.life > 0) catBro.bubble.life -= dt;
+
+  catBro.wanderTimer -= dt;
+  if(catBro.wanderTimer <= 0){
+    catBro.wanderTimer = rand(1.2, 2.5);
+    catBro.wanderAngle = player.facing + Math.PI + rand(-1.2, 1.2);
+    catBro.wanderDist  = rand(200, 300);
+  }
+  const tx = player.x + Math.cos(catBro.wanderAngle) * catBro.wanderDist;
+  const ty = player.y + Math.sin(catBro.wanderAngle) * catBro.wanderDist;
+  catBro.x += (tx - catBro.x) * Math.min(1, dt * 4);
+  catBro.y += (ty - catBro.y) * Math.min(1, dt * 4);
+  catBro.facing = player.facing;
+
+  if(catBro.skills.indexOf('orb') >= 0){
+    catBro.orbAngle += dt * 0.8 * TAU;
+    const count = 2;
+    const r = 90;
+    const size = 14;
+    if(catBro.orbHitCd.size > 200){
+      const cutoff = gameTime - 1.5;
+      for(const [k, t] of catBro.orbHitCd){
+        if(t < cutoff) catBro.orbHitCd.delete(k);
+      }
+    }
+    for(let i = 0; i < count; i++){
+      const a = catBro.orbAngle + i * TAU / count;
+      const ox = catBro.x + Math.cos(a) * r;
+      const oy = catBro.y + Math.sin(a) * r;
+      for(const e of enemies){
+        if(e.dead) continue;
+        if(Math.hypot(e.x - ox, e.y - oy) < e.r + size){
+          const last = catBro.orbHitCd.get(e.id) || 0;
+          if(gameTime - last >= 0.5){
+            catBro.orbHitCd.set(e.id, gameTime);
+            dealDamage(e, player.orbDamage * 0.6, 'orb');
+            burst(ox, oy, 4, '#ffb0d0', 140);
+            if(e.hp <= 0) killEnemy(e);
+          }
+        }
+      }
+    }
+  }
+
+  for(const s of catBro.skills){
+    if(s === 'orb') continue;
+    catBro.skillCd[s] = (catBro.skillCd[s] || 0) - dt;
+    if(catBro.skillCd[s] <= 0 && enemies.length > 0){
+      if(tryCatBroSkill(catBro, s)){
+        catBro.skillCd[s] = CATBRO_SKILL_CD[s];
+        if(Math.random() < 0.5){
+          const lines = CATBRO_LINES[s];
+          if(lines) sayCatBro(catBro, randLine(lines), false);
+        }
+      } else {
+        catBro.skillCd[s] = 0.5;
+      }
+    }
+  }
+
+  if(catBro.laserFx){
+    catBro.laserFx.timer -= dt;
+    if(catBro.laserFx.timer <= 0) catBro.laserFx = null;
+  }
+}
+
+function tryCatBroSkill(catBro, s){
+  if(s === 'can')       return catBroThrowCan(catBro);
+  if(s === 'missile')   return catBroFireMissile(catBro);
+  if(s === 'laser')     return catBroFireLaser(catBro);
+  if(s === 'airstrike') return catBroDoAirstrike(catBro);
+  return false;
+}
+
+function catBroThrowCan(catBro){
+  let best = null, bd = 1e9;
+  for(const e of enemies){
+    if(e.dead) continue;
+    const d = Math.hypot(e.x - catBro.x, e.y - catBro.y);
+    if(d < bd){ bd = d; best = e; }
+  }
+  if(!best || bd > 800) return false;
+  const tx = best.x + rand(-15, 15);
+  const ty = best.y + rand(-15, 15);
+  cans.push({
+    sx: catBro.x, sy: catBro.y, tx, ty,
+    x: catBro.x, y: catBro.y, z: 0,
+    t: 0, dur: 0.44, spin: 0,
+    fromCatBro: true
+  });
+  return true;
+}
+
+function catBroFireMissile(catBro){
+  const target = findHighestHpEnemy();
+  if(!target) return false;
+  const count = 2;
+  for(let i = 0; i < count; i++){
+    const a = (i / count) * TAU + Math.random() * 0.4;
+    const sx = catBro.x + Math.cos(a) * 12;
+    const sy = catBro.y + Math.sin(a) * 12;
+    const dirA = Math.atan2(target.y - sy, target.x - sx);
+    missileList.push({
+      x: sx, y: sy,
+      vx: Math.cos(dirA) * MISSILE_SPEED,
+      vy: Math.sin(dirA) * MISSILE_SPEED,
+      targetId: target.id,
+      damage: player.missileDamage * 0.6,
+      life: 3.5,
+      trail: []
+    });
+  }
+  return true;
+}
+
+function catBroFireLaser(catBro){
+  const target = findNearestEnemies(1, new Set())[0];
+  if(!target) return false;
+  const dmg = player.laserDamage * 0.5;
+  dealDamage(target, dmg, 'laser');
+  burst(target.x, target.y, 12, '#88eeff', 260);
+  rings.push({ x:target.x, y:target.y, maxR: 40, life:0.35, t:0.35, color:'#88eeff' });
+  catBro.laserFx = { timer: 0.3, x0: catBro.x, y0: catBro.y - 10, tx: target.x, ty: target.y };
+  return true;
+}
+
+function catBroDoAirstrike(catBro){
+  const targets = [];
+  for(const e of enemies){
+    if(!e.dead) targets.push(e);
+  }
+  if(targets.length === 0) return false;
+  for(let i = targets.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [targets[i], targets[j]] = [targets[j], targets[i]];
+  }
+  const n = Math.min(2, targets.length);
+  for(let i = 0; i < n; i++){
+    const t = targets[i];
+    airstrikeBombs.push({
+      x: t.x + rand(-25, 25),
+      y: t.y + rand(-25, 25),
+      startY: t.y - 700,
+      t: 0,
+      dur: 0.5 + i * 0.08,
+      damage: player.airstrikeDamage * 0.6,
+      radius: 90
+    });
+  }
+  return true;
+}
+
+function drawCatBro(){
+  if(!player) return;
+  for(const bro of catBros){
+    drawOneCatBro(bro);
+  }
+}
+
+function drawOneCatBro(catBro){
+  const r = catBro.r || player.r * 0.75;
+  const facingLeft = Math.cos(catBro.facing) < 0;
+  const bob = Math.sin(gameTime * 10 + 1.3) * 1.2;
+
+  drawGroundShadow(catBro.x, catBro.y + r * 1.3, r * 1.3, r * 0.4, 0.35);
+
+  // 毛球
+  if(catBro.skills.indexOf('orb') >= 0){
+    const count = 2;
+    const rOrb = 90;
+    const size = 14;
+    for(let i = 0; i < count; i++){
+      const a = catBro.orbAngle + i * TAU / count;
+      const ox = catBro.x + Math.cos(a) * rOrb;
+      const oy = catBro.y + Math.sin(a) * rOrb;
+      drawSingleOrb(ox, oy, size);
+    }
+  }
+
+  // 激光特效
+  if(catBro.laserFx){
+    const f = catBro.laserFx;
+    const alpha = Math.min(1, f.timer / 0.3);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#88eeff';
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(f.x0, f.y0);
+    ctx.lineTo(f.tx, f.ty);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(f.x0, f.y0);
+    ctx.lineTo(f.tx, f.ty);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 本体：优先用猫小弟自己的素材，没有再回退主角
+  const key = catBro.spriteKey || 'catbro';
+  const s = SPRITES[key];
+  const fallback = getCurrentCatSprite();
+  const useSpr = (s && s.loaded && s.img) ? s : fallback;
+  if(useSpr && useSpr.loaded && useSpr.img){
+    const w = r * 10;
+    const h = r * 10;
+    ctx.save();
+    ctx.translate(catBro.x, catBro.y + bob);
+    if(facingLeft) ctx.scale(-1, 1);
+    ctx.drawImage(useSpr.img, -w/2, -h/2, w, h);
+    ctx.restore();
+  }
+}
+
+function wrapTextSimple(text, maxWidth){
+  ctx.font = '13px "Microsoft YaHei",sans-serif';
+  const lines = [];
+  let cur = '';
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i];
+    const test = cur + ch;
+    if(ctx.measureText(test).width > maxWidth && cur.length > 0){
+      lines.push(cur);
+      cur = ch;
+    } else {
+      cur = test;
+    }
+  }
+  if(cur) lines.push(cur);
+  return lines;
+}
+
+function drawCatBroSelect(){
+  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = 'bold 40px "Microsoft YaHei",sans-serif';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+  const joinTitle = (catBroSpawnCount >= 2) ? '又一个猫小弟加入了！' : '猫小弟加入了！';
+  ctx.strokeText(joinTitle, W/2, 140);
+  const tg = ctx.createLinearGradient(0, 110, 0, 170);
+  tg.addColorStop(0, '#fff5c0');
+  tg.addColorStop(1, '#ffd24a');
+  ctx.fillStyle = tg;
+  ctx.fillText(joinTitle, W/2, 140);
+
+  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText('选择 1~2 个技能传授给它', W/2, 190);
+  ctx.fillStyle = '#dfe9e3';
+  ctx.fillText('选择 1~2 个技能传授给它', W/2, 190);
+
+  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
+  ctx.fillStyle = '#a0d8b8';
+  ctx.fillText('已选：' + catBroSelectedSkills.length + ' / 2', W/2, 222);
+
+  const skills = ['can','orb','laser','missile','airstrike'].filter(s =>
+    unlockedWeapons[s] && catBroTakenSkills.indexOf(s) < 0
+  );
+  const n = skills.length;
+  const CW = 150;
+  const CH = 200;
+  const GAP = 14;
+  const totalW = n * CW + (n - 1) * GAP;
+  const sx = (W - totalW) / 2;
+  const sy = H / 2 - CH / 2 - 20;
+
+  catBroCards = [];
+
+  for(let i = 0; i < n; i++){
+    const s = skills[i];
+    const info = CATBRO_SKILL_INFO[s];
+    const x = sx + i * (CW + GAP);
+    const y = sy;
+    const selected = catBroSelectedSkills.indexOf(s) >= 0;
+
+    catBroCards.push({ x, y, w: CW, h: CH, skill: s });
+
+    rr(x, y, CW, CH, 14);
+    const grd = ctx.createLinearGradient(x, y, x, y + CH);
+    if(selected){
+      grd.addColorStop(0, 'rgba(255, 245, 220, 0.98)');
+      grd.addColorStop(1, 'rgba(255, 220, 170, 0.98)');
+    } else {
+      grd.addColorStop(0, 'rgba(240, 240, 240, 0.92)');
+      grd.addColorStop(1, 'rgba(210, 210, 215, 0.92)');
+    }
+    ctx.fillStyle = grd;
+    ctx.fill();
+
+    ctx.strokeStyle = selected ? '#ffb84a' : 'rgba(140,160,150,0.7)';
+    ctx.lineWidth = selected ? 4 : 2;
+    rr(x, y, CW, CH, 14);
+    ctx.stroke();
+
+    const icx = x + CW / 2;
+    const icy = y + 70;
+    drawCircleIconBack(icx, icy, 36, '#f4fbff', 'rgba(120, 180, 220, 0.9)');
+    drawBuffIcon(info.icon, icx, icy, 48, info.color);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
+    ctx.fillStyle = info.color;
+    ctx.fillText(info.name, icx, y + 140);
+
+    ctx.font = '13px "Microsoft YaHei",sans-serif';
+    ctx.fillStyle = '#4a5a52';
+    const lines = wrapTextSimple(info.desc, CW - 20);
+    let ly = y + 165;
+    for(const ln of lines){
+      ctx.fillText(ln, icx, ly);
+      ly += 18;
+    }
+
+    if(selected){
+      const bx = x + CW - 18;
+      const by = y + 18;
+      ctx.fillStyle = '#ffb84a';
+      ctx.beginPath();
+      ctx.arc(bx, by, 14, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx - 6, by + 1);
+      ctx.lineTo(bx - 1, by + 6);
+      ctx.lineTo(bx + 7, by - 5);
+      ctx.stroke();
+    }
+  }
+
+  const cb = CATBRO_CONFIRM_BTN;
+  const canConfirm = catBroSelectedSkills.length >= 1;
+  const bc = canConfirm ? '#7fe0a0' : 'rgba(120,140,130,0.7)';
+  const tc = canConfirm ? '#289858' : '#5a6a62';
+  drawAppButton(cb, '确 认 ▶', bc, tc, { fontSize: 28, pulse: canConfirm });
+}
+
 // ================= 全屏轰炸 =================
 function doAirstrike(){
   const targets = [];
@@ -5000,7 +5491,7 @@ function explodeAirstrike(b){
 
 function updateAirstrike(dt){
   // 计时并自动释放（解锁即触发）
-  if(unlockedWeapons.airstrike){
+  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
     airstrikeTimer += dt;
     if(airstrikeTimer >= player.airstrikeCD){
       airstrikeTimer = 0;
@@ -5072,7 +5563,7 @@ function drawSkillIcons(){
   const step = 104;
 
   // ---------- 罐头 ----------
-  if(unlockedWeapons.can){
+  if(unlockedWeapons.can && catBroTakenSkills.indexOf('can') < 0){
     const cy = H * 0.50;
     const cdTotal = CAN_AUTO_INTERVAL;
     const cdP = Math.min(1, canAutoTimer / cdTotal);
@@ -5136,7 +5627,7 @@ function drawSkillIcons(){
   }
 
   // ---------- 全屏轰炸 ----------
-  if(unlockedWeapons.airstrike){
+  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
     const cy = H * 0.50 + step;
     const cdTotal = player.airstrikeCD;
     const cdP = Math.min(1, airstrikeTimer / cdTotal);
@@ -6452,8 +6943,8 @@ function drawHUD(){
   drawActiveItems();
   drawSkillIcons();
   drawJoystick(moveJoy, MOVE_BASE, '#7fe0a0', '移动');
-  if(unlockedWeapons.missile) drawMissileButton();
-  if(unlockedWeapons.laser)   drawLaserButton();
+  if(unlockedWeapons.missile && catBroTakenSkills.indexOf('missile') < 0) drawMissileButton();
+  if(unlockedWeapons.laser && catBroTakenSkills.indexOf('laser') < 0)   drawLaserButton();
   drawPauseButton();
   if(isAllWeaponsUnlocked()) drawAutoCastBtn();
   drawHelpQuickBtn();
@@ -9249,6 +9740,7 @@ function render(){
   const list = [];
   for(const e of enemies) list.push({ y: e.y, f: () => drawEnemy(e) });
   list.push({ y: player.y, f: drawCat });
+  for(const bro of catBros) list.push({ y: bro.y, f: () => drawOneCatBro(bro) });
   list.sort((a, b) => a.y - b.y);
   for(const item of list) item.f();
 
@@ -9342,6 +9834,7 @@ function render(){
   drawMissiles();
   drawAirstrikeBombs();
   drawBubble();
+  drawCatBroBubble();
   drawFloatTexts();
 
   ctx.restore();
@@ -9353,6 +9846,7 @@ function render(){
   }
 
   if(state === 'buff') drawBuffSelect();
+  else if(state === 'catbro'){ drawHUD(); drawCatBroSelect(); }
   else if(state === 'paused'){ drawHUD(); drawPauseOverlay(); }
   else if(state === 'confirm'){ drawHUD(); drawPauseOverlay(); drawConfirmRestart(); }
   else if(state === 'leaderboard'){ drawLeaderboardScreen(); }
