@@ -82,7 +82,10 @@ const WEAPON_UNLOCK_NAMES = {
 // 主菜单动效状态
 let menuTime = 0;
 let menuEnterT = 0;
-function menuInit(){ menuTime = 0; menuEnterT = 0; }
+let menuTapCount = 0;      // 隐藏操作：连点计数
+let menuTapLast = 0;       // 上次点击时间
+let menuToast = { text: '', life: 0 };  // 隐藏操作反馈文字
+function menuInit(){ menuTime = 0; menuEnterT = 0; menuToast.life = 0; menuTapCount = 0; }
 
 // ================= 猫选择 =================
 const CAT_OPTIONS = [
@@ -312,13 +315,13 @@ let grassPattern = null;
 //   恶魔精英   ≈ 玩家的 1.05 倍
 //
 const ENEMY_VISUAL = {
-  zombie:   { scale: 8.5, yOff: -0.30 },   // 小老鼠
-  runner:   { scale: 9.5, yOff: -0.30 },   // 小鼠
-  brute:    { scale: 6.0, yOff: -0.25 },   // 大老鼠（原来 9.0 太大）
-  spitter:  { scale: 8.5, yOff: -0.35 },   // 小恶魔
-  skeleton: { scale: 9.0, yOff: -0.45 },   // 骷髅
-  armored:  { scale: 8.5, yOff: -0.45 },   // 骑士
-  elite:    { scale: 7.0, yOff: -0.45 }    // 大恶魔（原来 9.0 太大）
+  zombie:   { scale: 10.2, yOff: -0.55 },  // 小老鼠
+  runner:   { scale: 11.4, yOff: -0.55 },  // 小鼠
+  brute:    { scale: 7.2,  yOff: -0.50 },  // 大老鼠
+  spitter:  { scale: 10.2, yOff: -0.62 },  // 小恶魔
+  skeleton: { scale: 10.8, yOff: -0.80 },  // 骷髅
+  armored:  { scale: 10.2, yOff: -0.80 },  // 骑士
+  elite:    { scale: 8.4,  yOff: -0.80 }   // 大恶魔
 };
 
 function loadImage(src, onDone){
@@ -529,76 +532,7 @@ function syncBGM(){
     if(menuBgm.intervalId) stopMenuBGM();
   }
 }
-// ================= 能量粒子系统 =================
-let energyParticles = [];
 
-// 计算正在飞行的能量粒子总值
-function getPendingEnergy(){
-  let sum = 0;
-  for(let i = 0; i < energyParticles.length; i++){
-    sum += energyParticles[i].value;
-  }
-  return sum;
-}
-
-function spawnEnergyOrb(x, y, value){
-  if(!player) return;
-  // 能量已满（含飞行中的粒子），不再生成
-  if(player.energy + getPendingEnergy() >= player.maxEnergy) return;
-
-  energyParticles.push({
-    x, y,
-    vx: rand(-40, 40),
-    vy: rand(-60, -20),
-    t: 0,
-    dur: 0.5,
-    value,
-    size: 2.2 + Math.random() * 1.2
-  });
-}
-
-function updateEnergyParticles(dt){
-  if(!player) return;
-  for(let i = energyParticles.length - 1; i >= 0; i--){
-    const p = energyParticles[i];
-    p.t += dt;
-    if(p.t >= p.dur){
-      addEnergy(p.value);
-      energyParticles.splice(i, 1);
-      continue;
-    }
-    if(p.t < 0.12){
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-    } else {
-      const dx = player.x - p.x;
-      const dy = player.y - p.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const speed = 700 + (p.t / p.dur) * 500;
-      p.x += dx / d * speed * dt;
-      p.y += dy / d * speed * dt;
-    }
-  }
-}
-
-function drawEnergyParticles(){
-  for(const p of energyParticles){
-    const pr = Math.min(1, p.t / p.dur);
-    const alpha = 1 - pr * 0.35;
-    const size = p.size * (1 + pr * 0.6);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size * 2.2);
-    grd.addColorStop(0, 'rgba(255,255,200,0.95)');
-    grd.addColorStop(0.35, 'rgba(140,255,120,0.85)');
-    grd.addColorStop(1, 'rgba(60,200,60,0)');
-    ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(p.x, p.y, size * 2.2, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#d8ffb0';
-    ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, TAU); ctx.fill();
-    ctx.restore();
-  }
-}
 // ================= 伤害统计 & 排行榜 =================
 const LB_KEY = 'cat_battle_leaderboard_v1';
 const WEAPON_NAMES = {
@@ -1437,7 +1371,15 @@ function onPointerDown(e){
         state = 'help';
         last = performance.now();
       } else {
-        // 技能解锁教程结束：回到战斗
+        // 技能解锁教程结束
+        // ★ 教学关最后一波：选完强化卡，看完技能教程后，才进过关弹窗
+        if(pendingStageClearAfterBuff && stageClearInfo){
+          pendingStageClearAfterBuff = false;
+          state = 'stageclear';
+          last = performance.now();
+          return;
+        }
+        // 普通情况：回到战斗
         state = 'playing';
         waveBreakTimer = 1.5;
         last = performance.now();
@@ -1504,6 +1446,24 @@ function onPointerDown(e){
   }
   // ============ 主菜单 ============
   if(state === 'menu'){
+    // ★ 隐藏：右上角 80×80 连点 3 次，重置教学完成标记
+    if(p.x > W - 80 && p.y < 80){
+      const nowT = performance.now();
+      if(nowT - menuTapLast < 1500){
+        menuTapCount++;
+      } else {
+        menuTapCount = 1;
+      }
+      menuTapLast = nowT;
+      if(menuTapCount >= 3){
+        menuTapCount = 0;
+        try{ localStorage.removeItem(TUTORIAL_DONE_KEY); }catch(e){}
+        menuToast = { text: '教学进度已重置，点击开始将重新走教学', life: 3.0 };
+        return;
+      }
+      return;
+    }
+
     const sb = MENU_START_BTN;
     if(p.x >= sb.x - sb.w/2 && p.x <= sb.x + sb.w/2 &&
        p.y >= sb.y - sb.h/2 && p.y <= sb.y + sb.h/2){
@@ -1894,40 +1854,51 @@ cv.addEventListener('click', audioUnlockByClick);
 //   armored  = 骑士（护甲精英，怕毛球/罐头）
 //   elite    = 大恶魔（恶魔精英，最强）
 const ENEMY_TYPES = {
-  // 小老鼠：基础杂兵，速度快但血少
-  zombie:  { hp: 30,  speed: 78,  r: 13, dmg: 8,  color: '#7a7a7a',
-             bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0 },
+  // 小老鼠：基础杂兵
+  zombie:  { hp: 200, speed: 55,  r: 13, dmg: 1,  color: '#7a7a7a',
+             bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0,
+             laserMult: 1.0, missileMult: 1.0, airstrikeMult: 1.0 },
 
-  // 小鼠：更瘦更快，速度型骚扰
-  runner:  { hp: 18,  speed: 152, r: 11, dmg: 6,  color: '#9aa0a4',
-             bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0 },
+  // 小鼠：高速，靠速度躲子弹，不减伤
+  runner:  { hp: 180, speed: 152, r: 11, dmg: 1,  color: '#9aa0a4',
+             bulletMult: 1.0, meleeMult: 1.5, canMult: 1.0,
+             laserMult: 1.0, missileMult: 1.0, airstrikeMult: 1.0 },
 
-  // 大老鼠：体型大、血厚、慢，正面硬抗
-  brute:   { hp: 180, speed: 38,  r: 26, dmg: 22, color: '#4a4a4a',
-             bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0 },
+  // 小恶魔：远程，怕激光/导弹
+  spitter: { hp: 300, speed: 60,  r: 15, dmg: 0,  color: '#a83232', ranged: true,
+             bulletMult: 1.2, meleeMult: 0.5, canMult: 1.0,
+             laserMult: 1.5, missileMult: 1.5, airstrikeMult: 1.0 },
 
-  // 小恶魔：远程怪，保持中距离投掷火球
-  spitter: { hp: 55,  speed: 50,  r: 15, dmg: 0,  color: '#a83232', ranged: true,
-             bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0 },
+  // 骷髅：中坚，怕毛球/激光
+  skeleton:{ hp: 450, speed: 35,  r: 16, dmg: 1, color: '#d8e0e4',
+             bulletMult: 0.5, meleeMult: 1.5, canMult: 1.0,
+             laserMult: 1.5, missileMult: 1.2, airstrikeMult: 1.0, skeleton: true },
 
-  // 光头骷髅：中速中血，对猫粮有 50% 抗性
-  skeleton:{ hp: 75,  speed: 88,  r: 16, dmg: 14, color: '#d8e0e4',
-             bulletMult: 0.5, meleeMult: 1.1, canMult: 1.0, skeleton: true },
+  // 大老鼠：血厚，怕导弹
+  brute:   { hp: 900, speed: 40,  r: 26, dmg: 2, color: '#4a4a4a',
+             bulletMult: 0.8, meleeMult: 0.7, canMult: 1.5,
+             laserMult: 1.2, missileMult: 1.8, airstrikeMult: 1.2 },
 
-  // 骑士：高护甲精英，猫粮几乎无效
-  armored: { hp: 280, speed: 48,  r: 22, dmg: 24, color: '#7a8570',
-             bulletMult: 0.12, meleeMult: 1.2, canMult: 1.5, elite: true, armored: true },
+  // 骑士：带护盾的精英
+  armored: { hp: 1400, speed: 48,  r: 22, dmg: 3, color: '#7a8570',
+             bulletMult: 0.15, meleeMult: 1.0, canMult: 1.8,
+             laserMult: 1.5, missileMult: 1.8, airstrikeMult: 1.5,
+             elite: true, armored: true,
+             shieldBaseHP: 400,
+             shieldMult: { bullet: 0.1, orb: 0.5, laser: 1.0, missile: 1.5, can: 4.0, airstrike: 3.0 } },
 
-  // 大恶魔：最强精英，远程 + 高血 + 高护甲
-  elite:   { hp: 450, speed: 58,  r: 28, dmg: 30, color: '#a83232', ranged: true,
-             bulletMult: 0.10, meleeMult: 1.15, canMult: 1.5, elite: true, demon: true }
+  // 大恶魔：最强精英，远程
+  elite:   { hp: 2200, speed: 58,  r: 28, dmg: 4, color: '#a83232', ranged: true,
+             bulletMult: 0.10, meleeMult: 0.8, canMult: 1.6,
+             laserMult: 1.6, missileMult: 1.8, airstrikeMult: 1.5, elite: true, demon: true }
 };
 
 // ================= 掉落物 =================
 const DROP_TYPES = {
-  heal_small:   { kind:'heal',  value:0.05, color:'#ff9a9a', icon:'✚' },
-  heal_medium:  { kind:'heal',  value:0.10, color:'#ff6b6b', icon:'✚' },
-  heal_large:   { kind:'heal',  value:0.15, color:'#ff4a4a', icon:'✚' },
+  // value = 单位数（1 单位 = 1/4 颗心）
+  heal_small:   { kind:'heal',  value:2, color:'#ff9a9a', icon:'✚' },  // 0.5 颗心
+  heal_medium:  { kind:'heal',  value:4, color:'#ff6b6b', icon:'✚' },  // 1 颗心
+  heal_large:   { kind:'heal',  value:8, color:'#ff4a4a', icon:'✚' },  // 2 颗心
   laser_charge: { kind:'laser', color:'#ffd24a', icon:'⚡' }
 };
 const HEAL_POOL = ['heal_small','heal_small','heal_medium','heal_medium','heal_large'];
@@ -1985,9 +1956,9 @@ function getBuffPreviewText(id, lv){
     case 'missile_charge':return '充能时间：' + (4/(1+0.28*lv)).toFixed(2) + 's → ' + (4/(1+0.28*next)).toFixed(2) + 's';
     case 'multishot':     return '猫粮发数：' + (1+lv) + ' → ' + (1+next);
     case 'pierce':        return '穿透数量：' + (1+lv) + ' → ' + (1+next);
-    case 'firerate':      return '射击间隔：' + (0.13/(1+0.28*lv)).toFixed(3) + 's → ' + (0.13/(1+0.28*next)).toFixed(3) + 's';
+    case 'firerate':      return '射击间隔：' + (0.5/(1+0.28*lv)).toFixed(3) + 's → ' + (0.5/(1+0.28*next)).toFixed(3) + 's';
     case 'speed':         return '移动速度：' + Math.round(240*(1+0.18*lv)) + ' → ' + Math.round(240*(1+0.18*next));
-    case 'damage':        return '猫粮伤害：' + Math.round(13*(1+0.4*lv)) + ' → ' + Math.round(13*(1+0.4*next));
+    case 'damage':        return '猫粮伤害：' + Math.round(10*(1+0.4*lv)) + ' → ' + Math.round(10*(1+0.4*next));
     case 'bulletrange':   return '射程加成：' + Math.round(100+40*lv) + '% → ' + Math.round(100+40*next) + '%';
     case 'canpower':      return '罐头伤害：' + Math.round(115*(1+0.5*lv)) + ' → ' + Math.round(115*(1+0.5*next));
     case 'blast':         return '爆炸范围：' + Math.round(140*(1+0.35*lv)) + ' → ' + Math.round(140*(1+0.35*next));
@@ -2301,21 +2272,62 @@ function drawFloatTexts(){
   ctx.textBaseline = 'alphabetic';
 }
 
-function dealDamage(e, baseDmg, type){
+function dealDamage(e, baseDmg, type, opts){
+  opts = opts || {};
+  const silent = !!opts.silent;
+  const noCrit = !!opts.noCrit;
+
   let dmg = baseDmg;
   let crit = false;
-  if(Math.random() < CRIT_CHANCE){
+  if(!noCrit && Math.random() < CRIT_CHANCE){
     dmg *= CRIT_MULT;
     crit = true;
   }
+
+  // 护盾吸收
+  if(e.shield > 0 && e.shieldMult){
+    const sMult = e.shieldMult[type] !== undefined ? e.shieldMult[type] : 1.0;
+    const shieldDmg = dmg * sMult;
+    e.shield -= shieldDmg;
+    e.hitFlash = 1;
+    if(runDamageStats && type){
+      runDamageStats[type] = (runDamageStats[type] || 0) + shieldDmg;
+    }
+    if(!silent){
+      addFloatText(e.x, e.y - e.r - 6, Math.round(shieldDmg), '#a0d8ff', crit);
+    }
+    if(e.shield <= 0){
+      e.shield = 0;
+      e.shieldBroken = true;
+      burst(e.x, e.y, 26, '#a0d8ff', 340);
+      burst(e.x, e.y, 14, '#ffffff', 260);
+      rings.push({ x:e.x, y:e.y, maxR: 64, life:0.5, t:0.5, color:'#a0d8ff' });
+      cam.shake = Math.max(cam.shake, 8);
+    }
+    return;
+  }
+
+  // 正常伤害：套用克制倍率
+  let mult = 1.0;
+  if(type === 'bullet')        mult = e.bulletMult     !== undefined ? e.bulletMult     : 1.0;
+  else if(type === 'orb')      mult = e.meleeMult      !== undefined ? e.meleeMult      : 1.0;
+  else if(type === 'can')      mult = e.canMult        !== undefined ? e.canMult        : 1.0;
+  else if(type === 'laser')    mult = e.laserMult      !== undefined ? e.laserMult      : 1.0;
+  else if(type === 'missile')  mult = e.missileMult    !== undefined ? e.missileMult    : 1.0;
+  else if(type === 'airstrike')mult = e.airstrikeMult  !== undefined ? e.airstrikeMult  : 1.0;
+
+  dmg *= mult;
   e.hp -= dmg;
   e.hitFlash = 1;
+
   if(runDamageStats && type){
     runDamageStats[type] = (runDamageStats[type] || 0) + dmg;
   }
-  const color = crit ? '#ff2b2b' : (DAMAGE_COLORS[type] || '#ffffff');
-  addFloatText(e.x, e.y - e.r - 6, Math.round(dmg), color, crit);
-  return dmg;
+
+  if(!silent){
+    const color = crit ? '#ff2b2b' : (DAMAGE_COLORS[type] || '#ffffff');
+    addFloatText(e.x, e.y - e.r - 6, Math.round(dmg), color, crit);
+  }
 }
 // ================= 全局状态 =================
 let state, player, enemies, bullets, eBullets, cans, particles, rings, burnMarks, drops;
@@ -2344,12 +2356,13 @@ let helpListRects = [];         // 玩法说明列表项的点击区域
 // ============ 教学关卡配置 ============
 // unlockThisStage：进入这一关后，第一次清波时弹出"解锁卡"
 const STAGES = [
-  { stage: 1, name: '移动与猫粮', unlockThisStage: 'frozen_bullet', buffPool: 'bullet',     damageScale: 0.10 },
-  { stage: 2, name: '罐头训练',   unlockThisStage: 'can',          buffPool: 'can',        damageScale: 0.10 },
-  { stage: 3, name: '毛球训练',   unlockThisStage: 'orb',      buffPool: 'orb',        damageScale: 0.12 },
-  { stage: 4, name: '激光训练',   unlockThisStage: 'laser',    buffPool: 'laser',      damageScale: 0.15 },
-  { stage: 5, name: '导弹训练',   unlockThisStage: 'missile',  buffPool: 'missile',    damageScale: 0.15 },
-  { stage: 6, name: '轰炸训练',   unlockThisStage: 'airstrike', buffPool: 'airstrike',  damageScale: 0.20 }
+  { unlockThisStage: 'frozen_bullet' },  // 波 1 → 冰冻弹
+  { unlockThisStage: 'can' },            // 波 2 → 罐头
+  { unlockThisStage: 'orb' },            // 波 3 → 毛球
+  { unlockThisStage: 'laser' },          // 波 4 → 激光
+  { unlockThisStage: 'missile' },        // 波 5 → 导弹
+  { unlockThisStage: 'airstrike' },      // 波 6 → 轰炸
+  { unlockThisStage: null }              // 波 7 → 终极混战，无解锁
 ];
 
 // 技能引导文案
@@ -2425,8 +2438,8 @@ const SKILL_INTROS = {
     panelAnchor: 'below'
   }
 };
-const STAGE_WAVES = 3;        // 教学关每关 3 波
-const TUTORIAL_MAX_STAGE = 6; // 教学关最后一关
+const STAGE_WAVES = 7;        // ★ 教学关共 7 波
+const TUTORIAL_MAX_STAGE = 1; // ★ 只有 1 个教学关
 
 // 每个武器系列对应的 buff id
 const BUFF_POOLS = {
@@ -2470,7 +2483,7 @@ const INITIAL_TUTORIAL_STEPS = [
     getPos: () => ({ x: W - 162, y: 130, w: 150, h: 104 }),
     panelAnchor: 'below',
     title: '波次信息',
-    lines: ['右上角显示当前关卡和波数', '本关共 ' + STAGE_WAVES + ' 波敌人', '每波清完后选择一项强化'],
+    lines: ['右上角显示当前波数', '本关共 ' + STAGE_WAVES + ' 波敌人', '每波清完后选择一项强化'],
     hint: '点击屏幕开始战斗'
   }
 ];
@@ -2566,7 +2579,85 @@ let isSecondPick = false;       // 当前是否处于第二次选择
 let airstrikeBombs = [];     // 正在下落的炸弹
 let groundDecorations = [];
 
-const CAN_AUTO_INTERVAL = 4;
+// ============ 无尽模式曲线 ============
+function getEndlessHpScale(n){
+  if(n <= 10)  return 1.0 + (n - 1) * 0.10;
+  if(n <= 50)  return 1.9 + (n - 10) * 0.075;
+  if(n <= 100) return 4.9 + (n - 50) * 0.12;
+  return 10.9 + (n - 100) * 0.05;
+}
+function getEndlessSpScale(n){
+  if(n <= 25) return 1.0 + (n - 1) * 0.025;
+  return Math.min(2.5, 1.6 + (n - 25) * 0.012);
+}
+function getEndlessDmgScale(n){
+  if(n <= 25) return 1.0;
+  return Math.min(2.5, 1.0 + (n - 25) * 0.03);
+}
+function getEndlessCount(n){
+  if(n <= 10) return 20;
+  return Math.min(80, 20 + Math.floor((n - 10) * 0.8));
+}
+function getEndlessDuration(n){
+  if(n <= 10)  return 21;
+  if(n <= 30)  return 28;
+  if(n <= 60)  return 32;
+  if(n <= 100) return 40;
+  return 45;
+}
+
+const TUTORIAL_WAVES = [
+  // 波 1：3 杂兵 + 3 高速兵（教冰冻弹）
+  { list: ['zombie','zombie','zombie','runner','runner','runner'],
+    interval: 1.5, shuffle: false },
+
+  // 波 2：8 只高速，巩固冰冻弹
+  { list: new Array(8).fill('runner'),
+    interval: 1.2, shuffle: true },
+
+  // 波 3：20 只杂兵密集出怪（教罐头群伤）
+  { list: new Array(20).fill('zombie'),
+    interval: 0.5, shuffle: true },
+
+  // 波 4：20 只高速兵（教毛球近身防御）
+  { list: new Array(20).fill('runner'),
+    interval: 0.5, shuffle: true },
+
+  // 波 5：混合（教激光持续锁定）
+  { list: ['zombie','zombie','zombie','zombie','zombie','zombie',
+           'skeleton','skeleton','skeleton','skeleton'],
+    interval: 1.0, shuffle: true },
+
+  // 波 6：4 只护盾怪（教导弹破盾）
+  { list: ['armored','armored','armored','armored'],
+    interval: 2.5, shuffle: true },
+
+  // 波 7：大混战（教轰炸清场）
+  { list: [
+      'zombie','zombie','zombie','zombie','zombie',
+      'runner','runner','runner','runner','runner',
+      'spitter','spitter','spitter',
+      'skeleton','skeleton','skeleton',
+      'brute','brute','brute',
+      'armored','armored'
+    ], interval: 0.8, shuffle: true }
+];
+
+// ============ 无尽模式刷怪状态 ============
+let waveSpawn = {
+  active: false,
+  currentStage: 0,
+  stageTimer: 0,
+  stageDuration: 0,
+  stagePools: [],
+  totalSpawned: 0,
+  totalTarget: 0,
+  wave: 0,
+  spawnTimer: 0
+};
+const MAX_ENEMIES_ON_FIELD = 30;
+
+const CAN_AUTO_INTERVAL = 5;
 const LASER_COST        = 100;
 const LASER_DURATION    = 0.30;
 const LASER_BASE_RADIUS = 900;
@@ -2610,10 +2701,9 @@ function reset(){
 
   player = {
     x: WORLD.w/2, y: WORLD.h * 0.72, r: 16,
-    speed: 240, hp: 100, maxHp: 100,
-    facing: -Math.PI/2, fireCd: 0, fireRate: 0.13, recoil: 0,
-    energy: 0, maxEnergy: 100,
-    energyMult: 1, bulletDamage: 13, pierce: 1, multishot: 0,
+    speed: 240, hp: 16, maxHp: 16,
+    facing: -Math.PI/2, fireCd: 0, fireRate: 0.5, recoil: 0,
+    bulletDamage: 10, pierce: 1, multishot: 0,
     bulletRangeMult: 1,
     blastRadius: 140,
     canDamage: CAN_BASE_DAMAGE,
@@ -2691,6 +2781,7 @@ function reset(){
   laser.dps = 0;
   laser.flash = 0;
   laser.isGold = false;
+  laserCooldown = 0;
   stopBGM();
   runDamageStats = {};
   resetJoy(moveJoy, MOVE_BASE);
@@ -2749,12 +2840,11 @@ function updateCameraInstant(){
 
 function recalcPlayerStats(){
   const b = player.buffLevels;
-  player.fireRate          = 0.13 / (1 + 0.28 * (b.firerate || 0));
+  player.fireRate          = 0.5  / (1 + 0.28 * (b.firerate || 0));
   player.speed             = 240  * (1 + 0.18 * (b.speed || 0));
-  player.bulletDamage      = 13   * (1 + 0.40 * (b.damage || 0));
+  player.bulletDamage      = 10   * (1 + 0.40 * (b.damage || 0));
   player.bulletRangeMult   = 1 + 0.40 * (b.bulletrange || 0);
   player.canDamage         = CAN_BASE_DAMAGE * (1 + 0.50 * (b.canpower || 0));
-  player.energyMult        = 1 + 0.60 * (b.laserup || 0);
   player.laserDamage       = LASER_BASE_DAMAGE * (1 + 0.45 * (b.laserpower || 0));
   player.blastRadius       = 140  * (1 + 0.35 * (b.blast || 0));
   player.pierce            = 1 + (b.pierce || 0);
@@ -2781,7 +2871,8 @@ function recalcPlayerStats(){
   player.airstrikeDamage = 80 + al * 30;                             // 单发伤害：110~230
   player.airstrikeCD = 6.0 / (1 + 0.12 * (al > 0 ? al - 1 : 0));     // 冷却：6s 起步，逐级缩短
 
-  const newMax = 100 + 30 * (b.vitality || 0);
+  // 生命强化：每级 +1 颗心（+4 单位）
+  const newMax = 16 + 4 * (b.vitality || 0);
   player.maxHp = newMax;
   player.hp = Math.min(player.hp, player.maxHp);
 }
@@ -2801,7 +2892,7 @@ function rollBuffChoices(){
 
   // ============ 教学关：只从对应武器池抽取 ============
   if(isTutorial){
-    const cfg = STAGES[currentStage - 1];
+    const cfg = STAGES[waveInStage - 1];
 
     // ★ 本关需要解锁武器且还没解锁 → 解锁卡 + 2 张普通卡（解锁卡放中间）
     if(cfg && cfg.unlockThisStage && !unlockedWeapons[cfg.unlockThisStage]){
@@ -2982,6 +3073,13 @@ function chooseBuff(id){
     // 只有点解锁卡才响应
     if(choice && choice.isUnlock){
       unlockedWeapons[choice.unlockKey] = true;
+      // ★ 冰冻弹特殊：解锁即给 Lv1
+      if(choice.unlockKey === 'frozen_bullet'){
+        player.buffLevels.frozen_bullet = (player.buffLevels.frozen_bullet || 0) + 1;
+      }
+      // ★ 罐头 / 空袭：解锁时从"刚放过"状态开始，等满一个冷却才触发
+      if(choice.unlockKey === 'can')       canAutoTimer    = 0;
+      if(choice.unlockKey === 'airstrike') airstrikeTimer  = 0;
       recalcPlayerStats();
       sfx('buff');
       buffFadeIn = 0;
@@ -3058,12 +3156,12 @@ function pickupDrop(d){
   const t = DROP_TYPES[d.type];
   sfx('pickup');
   if(t.kind === 'heal'){
-    const amount = Math.round(player.maxHp * t.value);
+    const amount = t.value;   // 已经是单位数
     player.hp = Math.min(player.maxHp, player.hp + amount);
     burst(player.x, player.y, 12, t.color, 200);
     rings.push({ x:player.x, y:player.y, maxR: 42, life:0.4, t:0.4, color: t.color });
-    addFloatText(player.x, player.y - 30, '+' + amount, '#7ef07e', false);
-    say(randLine(LINES.heal) + ' +' + amount, true);
+    addFloatText(player.x, player.y - 30, '+' + (amount / 4).toFixed(2), '#7ef07e', false);
+    say(randLine(LINES.heal), true);
   } else if(t.kind === 'laser'){
     player.laserChargeTimer = 15;
     burst(player.x, player.y, 16, '#ffd24a', 280);
@@ -3102,17 +3200,16 @@ function updateDrops(dt){
 function pickType(n){
   const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
 
-  // ============ 教学关：按关卡逐步解锁怪物 ============
   if(isTutorial){
-    const pool = [['zombie', 60]];                          // 第 1 关起：小老鼠
-    if(currentStage >= 2) pool.push(['runner',   30]);      // 第 2 关起：小鼠（罐头范围能清）
-    if(currentStage >= 3) pool.push(['skeleton', 20]);      // 第 3 关起：骷髅（毛球敏感）
-    if(currentStage >= 4) pool.push(['brute',    12]);      // 第 4 关起：大老鼠（激光点杀）
-    if(currentStage >= 5) pool.push(['spitter',  12]);      // 第 5 关起：远程小恶魔（导弹点杀）
-    if(currentStage >= 6){
-      pool.push(['armored', 8]);                            // 第 6 关起：骑士
-      pool.push(['elite',   5]);                            // 第 6 关起：大恶魔
-    }
+    // 教学关按波次逐步解锁怪（前 2 波只有 zombie）
+    const pool = [['zombie', 100]];
+    if(waveInStage >= 3) pool[0] = ['zombie', 70];
+    if(waveInStage >= 3) pool.push(['runner', 40]);   // 第 3 波起才有高速怪
+    if(waveInStage >= 4) pool.push(['spitter', 15]);
+    if(waveInStage >= 5) pool.push(['skeleton', 20]);
+    if(waveInStage >= 6) pool.push(['brute', 12]);
+    if(waveInStage >= 7) pool.push(['armored', 8]);
+    if(waveInStage >= 7) pool.push(['elite', 5]);
     let total = 0;
     for(const p of pool) total += p[1];
     let r = Math.random() * total;
@@ -3120,14 +3217,14 @@ function pickType(n){
     return 'zombie';
   }
 
-  // ============ 无尽模式：原有逻辑 ============
+  // 无尽模式
   const pool = [['zombie', 60]];
-  if(n >= 2) pool.push(['runner', 32]);
-  if(n >= 2) pool.push(['skeleton', 22]);
-  if(n >= 3) pool.push(['brute', 14]);
-  if(n >= 4) pool.push(['spitter', 16]);
-  if(n >= 3) pool.push(['armored', 8 + n]);
-  if(n >= 5) pool.push(['elite', 5 + n]);
+  if(n >= 5) pool.push(['runner', 32]);
+  if(n >= 7) pool.push(['skeleton', 22]);
+  if(n >= 10) pool.push(['spitter', 16]);
+  if(n >= 15) pool.push(['brute', 14]);
+  if(n >= 15) pool.push(['armored', 10]);
+  if(n >= 5) pool.push(['elite', 6]);
   let total = 0;
   for(const p of pool) total += p[1];
   let r = Math.random() * total;
@@ -3138,78 +3235,132 @@ function startWave(n){
   waveActive = true;
 
   const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
+  let bannerText;
 
-  // ===== 切背景 =====
   if(isTutorial){
-    setBackground(STAGE_BACKGROUNDS[currentStage - 1] || 'grass');
+    const wcfg = TUTORIAL_WAVES[waveInStage - 1];
+    spawnQueue = [];
+    if(wcfg && wcfg.list){
+      let types = wcfg.list.slice();
+      if(wcfg.shuffle){
+        for(let i = types.length - 1; i > 0; i--){
+          const j = Math.floor(Math.random() * (i + 1));
+          [types[i], types[j]] = [types[j], types[i]];
+        }
+      }
+      for(let i = 0; i < types.length; i++){
+        spawnQueue.push({ type: types[i], t: i * wcfg.interval });
+      }
+      waveTotal = types.length;
+    } else {
+      waveTotal = 0;
+    }
+    waveSpawn.active = false;
+    bannerText = '教学 · 第 ' + waveInStage + ' / ' + STAGE_WAVES + ' 波';
   } else {
+    // 无尽模式：3 阶段生成
+    const totalCount = getEndlessCount(n);
+    const targetDuration = getEndlessDuration(n);
+    const perStage = Math.ceil(totalCount / 3);
+    const lastStageCount = totalCount - perStage * 2;
+    const stageDuration = targetDuration / 3;
+
+    waveSpawn.active = true;
+    waveSpawn.currentStage = 0;
+    waveSpawn.stageTimer = 0;
+    waveSpawn.stageDuration = stageDuration;
+    waveSpawn.stagePools = [
+      { remaining: perStage },
+      { remaining: perStage },
+      { remaining: Math.max(0, lastStageCount) }
+    ];
+    waveSpawn.totalSpawned = 0;
+    waveSpawn.totalTarget = totalCount;
+    waveSpawn.wave = n;
+    waveSpawn.spawnTimer = 0;
+
+    waveTotal = totalCount;
+    bannerText = '第 ' + n + ' 波  ·  ' + totalCount + ' 只';
+
     const idx = Math.floor((Math.max(1, n) - 1) / 5) % ENDLESS_BACKGROUNDS.length;
     setBackground(ENDLESS_BACKGROUNDS[idx]);
   }
 
-  let count, interval, bannerText;
-
-  if(isTutorial){
-    // 教学关：怪物少、间隔长、慢节奏
-    count = 5 + waveInStage * 2;                    // 5, 7, 9
-    interval = Math.max(0.4, 0.9 - waveInStage * 0.08);
-    bannerText = '第 ' + currentStage + ' 关  ·  第 ' + waveInStage + ' / ' + STAGE_WAVES + ' 波';
-  } else {
-    // 无尽模式：前 25 波温和，25 波后数量 + 节奏暴涨
-    if(n <= 25){
-      count = Math.min(50, 8 + n * 4);
-      interval = Math.max(0.16, 0.55 - n * 0.03);
-    } else {
-      const extra = n - 25;
-      count = Math.min(90, 50 + extra * 3);                    // 每波 +3 只，上限 90
-      interval = Math.max(0.06, 0.16 - extra * 0.012);         // 刷怪间隔持续压缩
-    }
-    bannerText = '第 ' + n + ' 波  ·  ' + count + ' 只';
-  }
-
-  spawnQueue = [];
-  for(let i = 0; i < count; i++) spawnQueue.push({ type: pickType(n), t: i * interval });
   waveTimer = 0;
-  waveTotal = count;
   banner = { text: bannerText, life: 2.0 };
   saveProgress();
 }
+
+// ============ 无尽模式刷怪推进 ============
+function updateSpawning(dt){
+  if(!waveSpawn.active) return;
+
+  const pool = waveSpawn.stagePools[waveSpawn.currentStage];
+  if(!pool) return;
+
+  waveSpawn.stageTimer += dt;
+
+  const stageTimeUp = waveSpawn.stageTimer >= waveSpawn.stageDuration;
+  const stageClear  = pool.remaining === 0 && enemies.length === 0;
+
+  if((stageTimeUp || stageClear) && waveSpawn.currentStage < waveSpawn.stagePools.length - 1){
+    const next = waveSpawn.stagePools[waveSpawn.currentStage + 1];
+    if(pool.remaining > 0){
+      next.remaining += pool.remaining;
+      pool.remaining = 0;
+    }
+    waveSpawn.currentStage++;
+    waveSpawn.stageTimer = 0;
+    return;
+  }
+
+  if(pool.remaining > 0 && enemies.length < MAX_ENEMIES_ON_FIELD){
+    waveSpawn.spawnTimer -= dt;
+    if(waveSpawn.spawnTimer <= 0){
+      spawnEnemy(pickType(waveSpawn.wave));
+      pool.remaining--;
+      waveSpawn.totalSpawned++;
+      waveSpawn.spawnTimer = 0.2;
+    }
+  }
+}
+
+function isWaveClear(){
+  if(!waveSpawn.active) return false;
+  const lastIdx = waveSpawn.stagePools.length - 1;
+  if(waveSpawn.currentStage < lastIdx) return false;
+  const lastPool = waveSpawn.stagePools[lastIdx];
+  return lastPool.remaining === 0 && enemies.length === 0;
+}
+
 function spawnEnemy(type){
   const base = ENEMY_TYPES[type];
 
-  // 从屏幕顶部上方屏幕外生成（世界 = 屏幕，坐标固定）
   let x = rand(150, WORLD.w - 150);
   let y = -60 - rand(0, 80);
 
   const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
-
-  // 教学关：血量 / 速度按关卡缩放（温和）
-  // 无尽模式：按波次缩放（原有逻辑）
   let hpScale, spScale, dmgScale;
+
   if(isTutorial){
-    hpScale = 1 + (currentStage - 1) * 0.08;   // 第 1 关 = 1.0，第 6 关 = 1.4
-    spScale = 1 + (currentStage - 1) * 0.02;
-    const cfg = STAGES[currentStage - 1];
-    dmgScale = (cfg && cfg.damageScale) || 0.1;
+    // 教学关：每只怪 HP 固定，不随波次成长
+    const TUT_HP = {
+      zombie: 40, runner: 40, spitter: 80,
+      skeleton: 120, brute: 250,
+      armored: 400, elite: 600
+    };
+    const thp = TUT_HP[type] !== undefined ? TUT_HP[type] : 40;
+    hpScale = thp / base.hp;
+    spScale = 1.0;
+    dmgScale = 1.0;
   } else {
     const w = Math.max(1, wave);
-    if(w <= 25){
-      // 前 25 波：温和线性
-      hpScale = 1 + (w - 1) * 0.15;
-      spScale = 1 + (w - 1) * 0.025;
-      dmgScale = 1.0;
-    } else {
-      // 25 波后：血量指数暴涨，速度/伤害线性上抬
-      const baseHp = 1 + 24 * 0.15;      // 4.6（第 25 波的基准值）
-      const baseSp = 1 + 24 * 0.025;     // 1.6
-      const extra  = w - 25;
-      hpScale  = baseHp * Math.pow(1.12, extra);                 // 每波 ×1.12
-      spScale  = baseSp * (1 + extra * 0.06);
-      dmgScale = Math.min(3.0, 1.0 + extra * 0.06);              // 伤害上限 3 倍
-    }
+    hpScale = getEndlessHpScale(w);
+    spScale = getEndlessSpScale(w);
+    dmgScale = getEndlessDmgScale(w);
   }
 
-  enemies.push({
+  const e = {
     id: nextEnemyId++,
     x, y, r: base.r,
     hp: base.hp * hpScale, maxHp: base.hp * hpScale,
@@ -3218,11 +3369,28 @@ function spawnEnemy(type){
     bulletMult: base.bulletMult !== undefined ? base.bulletMult : 1.0,
     meleeMult: base.meleeMult !== undefined ? base.meleeMult : 1.0,
     canMult: base.canMult !== undefined ? base.canMult : 1.0,
+    laserMult: base.laserMult !== undefined ? base.laserMult : 1.0,
+    missileMult: base.missileMult !== undefined ? base.missileMult : 1.0,
+    airstrikeMult: base.airstrikeMult !== undefined ? base.airstrikeMult : 1.0,
     elite: !!base.elite, armored: !!base.armored,
     skeleton: !!base.skeleton, demon: !!base.demon,
     angle: 0, atkCd: 0, hitFlash: 0, slowTimer: 0, frozenTimer: 0,
-    ranged: !!base.ranged, shootCd: rand(1, 2.5)
-  });
+    ranged: !!base.ranged, shootCd: rand(1, 2.5),
+    // 护盾
+    shieldMax: 0, shield: 0, shieldMult: null, shieldBroken: false
+  };
+
+ if(base.armored && base.shieldBaseHP){
+    if(isTutorial){
+      e.shieldMax = 200;   // 教学关固定：罐头一发破 / 导弹两发破
+    } else {
+      e.shieldMax = base.shieldBaseHP * hpScale;
+    }
+    e.shield = e.shieldMax;
+    e.shieldMult = base.shieldMult;
+  }
+
+  enemies.push(e);
 }
 
 // ================= 特效 =================
@@ -3236,10 +3404,7 @@ function burst(x, y, n, color, spd){
     });
   }
 }
-function addEnergy(v){
-  if(!player) return;
-  player.energy = Math.min(player.maxEnergy, player.energy + v * player.energyMult);
-}
+
 
 // ================= 毛球 =================
 function updateOrbs(dt){
@@ -3270,14 +3435,12 @@ function updateOrbs(dt){
         const last = player.orbHitCd.get(e.id) || 0;
         if(gameTime - last >= ORB_HIT_CD){
           player.orbHitCd.set(e.id, gameTime);
-          const dmg = player.orbDamage * (e.meleeMult || 1.0);
-          dealDamage(e, dmg, 'orb');
+          dealDamage(e, player.orbDamage, 'orb');
 
           const ka = Math.atan2(e.y - player.y, e.x - player.x);
           e.x += Math.cos(ka) * ORB_KNOCKBACK;
           e.y += Math.sin(ka) * ORB_KNOCKBACK;
 
-          spawnEnergyOrb(ox, oy, 1.5);
           burst(ox, oy, 5, '#ffb0d0', 160);
           burst(e.x, e.y, 4, '#ffd0e0', 120);
           sfx('orb');
@@ -3293,7 +3456,6 @@ function updateOrbs(dt){
         burst(b.x, b.y, 8, '#ffb0d0', 220);
         burst(b.x, b.y, 4, '#ffffff', 160);
         rings.push({ x:b.x, y:b.y, maxR: 24, life:0.25, t:0.25, color:'#ffb0d0' });
-        spawnEnergyOrb(b.x, b.y, 1);
         eBullets.splice(k, 1);
       }
     }
@@ -3466,7 +3628,6 @@ function updateMissiles(dt){
       if(e.dead) continue;
       if(Math.hypot(e.x - m.x, e.y - m.y) < e.r + 20){
         dealDamage(e, m.damage, 'missile');
-        spawnEnergyOrb(m.x, m.y, 6);
         burst(m.x, m.y, 14, '#ff8a3c', 320);
         burst(m.x, m.y, 6, '#ffe0a0', 200);
         rings.push({ x:m.x, y:m.y, maxR: 46, life:0.35, t:0.35, color:'#ff8a3c' });
@@ -3571,8 +3732,8 @@ function explodeCan(c){
     const d = Math.hypot(e.x - c.tx, e.y - c.ty);
     if(d < R + e.r){
       const k = 1 - d / (R + e.r);
-      const dmg = DMG * (0.55 + k * 0.45) * (e.canMult || 1.0);
-      dealDamage(e, dmg, 'airstrike');
+      const dmg = DMG * (0.55 + k * 0.45);
+      dealDamage(e, dmg, 'can');
       burst(e.x, e.y, 6, '#ffb84a', 220);
       if(e.hp <= 0) killEnemy(e, false);
     }
@@ -3584,7 +3745,6 @@ function killEnemy(e, giveEnergy){
   e.dead = true;
   score += 10 + Math.floor(e.maxHp / 8);
   stageKillCount++;
-  if(giveEnergy !== false) spawnEnergyOrb(e.x, e.y, 8);
   burst(e.x, e.y, 16, e.color, 220);
   burst(e.x, e.y, 8, '#c94a4a', 180);
   if(e.elite){
@@ -3607,14 +3767,17 @@ function findNearestEnemies(count, excludeIds){
   return arr.slice(0, count).map(item => item.e);
 }
 
+let laserCooldown = 0;          // 当前剩余冷却
+const LASER_COOLDOWN_MAX = 10;  // 冷却总时长
+
 function fireLaser(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.laser) return;
   if(laser.active) return;
-  if(player.energy < LASER_COST) return;
+  if(laserCooldown > 0) return;
   if(enemies.length === 0) return;
 
-  player.energy -= LASER_COST;
+  laserCooldown = LASER_COOLDOWN_MAX;
   laser.active = true;
   laser.targets = [];
   laser.timer = 0;
@@ -3680,14 +3843,10 @@ function updateLaser(dt){
     if(!target) continue;
 
     const rawDmg = laser.dps * dt * (laser.isGold ? 2.0 : 1.0);
-    target.hp -= rawDmg;
-    target.hitFlash = 1;
-    target.slowTimer = 0.25;
-    // 统计激光伤害
     const lType = laser.isGold ? 'laserGold' : 'laser';
-    if(runDamageStats && target.hp !== undefined){
-      runDamageStats[lType] = (runDamageStats[lType] || 0) + rawDmg;
-    }
+    // 静默造成伤害（不触发暴击/飘字，护盾和克制倍率照常）
+    dealDamage(target, rawDmg, 'laser', { silent: true, noCrit: true });
+    target.slowTimer = 0.25;
 
     t.dmgAccum += rawDmg;
     t.floatTimer += dt;
@@ -3698,11 +3857,6 @@ function updateLaser(dt){
       t.floatTimer = 0;
     }
 
-    laser.energyTick = (laser.energyTick || 0) + dt;
-    if(laser.energyTick >= 0.18){
-      laser.energyTick = 0;
-      spawnEnergyOrb(target.x, target.y, 2);
-    }
     if(Math.random() < dt * 40){
       burst(target.x + rand(-8,8), target.y + rand(-8,8), 2,
             laser.isGold ? '#ffd24a' : '#88eeff', 160);
@@ -3726,7 +3880,7 @@ function damagePlayer(d){
   cam.shake = Math.max(cam.shake, 9);
   sfx('hurt');
   say(randLine(LINES.hurt), false);
-  addFloatText(player.x, player.y - 30, '-' + Math.round(d), '#ff5b5b', false);
+  addFloatText(player.x, player.y - 30, '-' + (d / 4).toFixed(2), '#ff5b5b', false);
   if(player.hp <= 0){
     player.hp = 0;
     state = 'dead';
@@ -3813,6 +3967,7 @@ function update(dt){
       menuTime += dt;
       menuEnterT = Math.min(1, menuEnterT + dt * 1.5);
     }
+    if(menuToast.life > 0) menuToast.life -= dt;
 
     if(state === 'dead'){
       gameTime += dt;
@@ -3846,6 +4001,7 @@ function update(dt){
   if(Math.abs(targetAnim - autoCastAnim) < 0.005) autoCastAnim = targetAnim;
 
   if(player.laserChargeTimer > 0) player.laserChargeTimer = Math.max(0, player.laserChargeTimer - dt);
+  if(laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt);
   if(player.recoil > 0) player.recoil = Math.max(0, player.recoil - dt);
 
   updateDrops(dt);
@@ -3858,7 +4014,7 @@ function update(dt){
   // ===== 自动释放技能 =====
   if(autoCast && enemies.length > 0){
     // 自动激光
-    if(!laser.active && player.energy >= LASER_COST){
+    if(!laser.active && laserCooldown <= 0){
       fireLaser();
     }
     // 自动导弹：附近至少 2 只敌人才放
@@ -4039,19 +4195,20 @@ function update(dt){
     for(const e of enemies){
       if(e.dead) continue;
       if(b.hitSet && b.hitSet.has(e.id)) continue;
-      if(Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r){
+      if(Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r + 6){
         const bm = e.bulletMult !== undefined ? e.bulletMult : 1.0;
         dealDamage(e, b.dmg * bm, 'bullet');
-        spawnEnergyOrb(b.x, b.y, 2);
         burst(b.x, b.y, 4, '#e8c46a', 150);
         sfx('hit');
 
         // 冰冻弹判定
         const fl = player.buffLevels.frozen_bullet || 0;
         if(fl > 0 && e.frozenTimer <= 0){
-          let chance = 0.06 + 0.08 * fl;
+          let chance = 0.15 + 0.10 * fl;
           if(e.demon) chance *= 0.35;
           else if(e.armored) chance *= 0.55;
+          else if(e.type === 'runner') chance *= 2.0;
+          chance = Math.min(1, chance);
           if(Math.random() < chance){
             e.frozenTimer = 3.0;
             burst(e.x, e.y, 14, '#a0e8ff', 300);
@@ -4091,15 +4248,28 @@ function update(dt){
         burst(e.x + rand(-8,8), e.y + rand(-8,8), 1, '#a0e8ff', 60);
       }
     } else if(e.ranged){
-      if(d > 300){
-        e.x += Math.cos(e.angle) * e.speed * slowMul * dt;
-        e.y += Math.sin(e.angle) * e.speed * slowMul * dt;
-      } else if(d < 180){
+      const KEEP_MIN = 420;
+      const KEEP_MAX = 620;
+      if(d > KEEP_MAX){
+        // 远距离也先直走，接近到 700 才开始朝玩家移动
+        const RANGED_TRACK = 700;
+        let moveAngle = e.angle;
+        if(d > RANGED_TRACK){
+          moveAngle = Math.PI / 2;
+        }
+        e.x += Math.cos(moveAngle) * e.speed * slowMul * dt;
+        e.y += Math.sin(moveAngle) * e.speed * slowMul * dt;
+      } else if(d < KEEP_MIN){
+        const oldY = e.y;
         e.x -= Math.cos(e.angle) * e.speed * 0.7 * slowMul * dt;
         e.y -= Math.sin(e.angle) * e.speed * 0.7 * slowMul * dt;
+        if(e.y < 80){
+          e.y = Math.max(80, oldY);
+        }
       }
       e.shootCd -= dt;
-      if(e.shootCd <= 0 && d < 540){
+      // 开火距离从 540 拉到 780：怪停下来就能开火，玩家肉眼可见
+      if(e.shootCd <= 0 && d < 780){
         e.shootCd = e.demon ? 1.6 : 2.1;
         const a = e.angle + rand(-0.08, 0.08);
         const speed = e.demon ? 320 : 275;
@@ -4107,14 +4277,20 @@ function update(dt){
           x: e.x + Math.cos(a) * e.r,
           y: e.y + Math.sin(a) * e.r,
           vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-          r: e.demon ? 9 : 7,
-          dmg: e.demon ? 14 : 8,
+          r: e.demon ? 12 : 10,   // 子弹加大，看得清
+          dmg: e.demon ? 4 : 2,   // 恶魔 1 颗心 / 小恶魔 1/2 颗心
           life: 3
         });
       }
     } else if(d > e.r + player.r - 2){
-      e.x += Math.cos(e.angle) * e.speed * slowMul * dt;
-      e.y += Math.sin(e.angle) * e.speed * slowMul * dt;
+      // 距离远时先朝屏幕下方直走；进入 450 距离才开始追玩家
+      const TRACK_DIST = 450;
+      let moveAngle = e.angle;
+      if(d > TRACK_DIST){
+        moveAngle = Math.PI / 2;   // 朝下（屏幕 y 增大）
+      }
+      e.x += Math.cos(moveAngle) * e.speed * slowMul * dt;
+      e.y += Math.sin(moveAngle) * e.speed * slowMul * dt;
     }
 
     e.x = clamp(e.x, e.r, WORLD.w - e.r);
@@ -4126,23 +4302,6 @@ function update(dt){
     }
   }
 
-  for(let i = 0; i < enemies.length; i++){
-    const a = enemies[i];
-    if(a.dead) continue;
-    for(let j = i + 1; j < enemies.length; j++){
-      const b2 = enemies[j];
-      if(b2.dead) continue;
-      const dx = b2.x - a.x, dy = b2.y - a.y;
-      const d = Math.hypot(dx, dy) || 0.001;
-      const min = a.r + b2.r;
-      if(d < min){
-        const push = (min - d) / 2;
-        const nx = dx / d, ny = dy / d;
-        a.x -= nx * push; a.y -= ny * push;
-        b2.x += nx * push; b2.y += ny * push;
-      }
-    }
-  }
   for(let i = enemies.length - 1; i >= 0; i--){
     if(enemies[i].dead) enemies.splice(i, 1);
   }
@@ -4174,7 +4333,6 @@ function update(dt){
   updateLaser(dt);
   updateMissiles(dt);
   updateAirstrike(dt);
-  updateEnergyParticles(dt);
 
   // 波次清完后的缓冲：先亮"波次清除"横幅，再切到强化卡
   if(waveClearTimer > 0){
@@ -4188,15 +4346,26 @@ function update(dt){
 
   if(waveActive){
     waveTimer += dt;
-    for(let i = spawnQueue.length - 1; i >= 0; i--){
-      spawnQueue[i].t -= dt;
-      if(spawnQueue[i].t <= 0){
-        spawnEnemy(spawnQueue[i].type);
-        spawnQueue.splice(i, 1);
+
+    if(waveSpawn.active){
+      updateSpawning(dt);
+    } else {
+      for(let i = spawnQueue.length - 1; i >= 0; i--){
+        spawnQueue[i].t -= dt;
+        if(spawnQueue[i].t <= 0){
+          spawnEnemy(spawnQueue[i].type);
+          spawnQueue.splice(i, 1);
+        }
       }
     }
-    if(spawnQueue.length === 0 && enemies.length === 0){
+
+    const _waveClear = waveSpawn.active
+      ? isWaveClear()
+      : (spawnQueue.length === 0 && enemies.length === 0);
+
+    if(_waveClear){
       waveActive = false;
+      waveSpawn.active = false;
       const bonus = 60 * wave;
       score += bonus;
 
@@ -4484,8 +4653,8 @@ function drawCat(){
   const curSpr = getCurrentCatSprite();
   if(curSpr && curSpr.loaded && curSpr.img){
     const img = curSpr.img;
-    const w = r * 8;
-    const h = r * 8;
+    const w = r * 10;
+    const h = r * 10;
     ctx.save();
     ctx.translate(p.x, p.y + bob);
     if(facingLeft) ctx.scale(-1, 1);
@@ -4658,6 +4827,51 @@ function drawEnemy(e){
     }
     ctx.restore();
 
+    // ===== 护盾绘制 =====
+    if(e.shield > 0 && e.shieldMax > 0){
+      const pulse = 0.5 + Math.sin(gameTime * 6 + e.id) * 0.5;
+      const shieldRatio = e.shield / e.shieldMax;
+      const R = e.r * 1.9;
+
+      ctx.save();
+      ctx.globalAlpha = 0.28 + pulse * 0.14;
+      const grd = ctx.createRadialGradient(e.x, e.y, R * 0.4, e.x, e.y, R);
+      grd.addColorStop(0, 'rgba(160, 216, 255, 0)');
+      grd.addColorStop(0.7, 'rgba(160, 216, 255, 0.35)');
+      grd.addColorStop(1, 'rgba(160, 216, 255, 0.6)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, R, 0, TAU);
+      ctx.fill();
+
+      // 六边形护盾轮廓
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = shieldRatio < 0.3
+        ? 'rgba(255, 180, 120, ' + (0.75 + pulse * 0.25) + ')'
+        : 'rgba(200, 240, 255, ' + (0.7 + pulse * 0.3) + ')';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for(let i = 0; i < 6; i++){
+        const a = -Math.PI / 2 + i * TAU / 6 + gameTime * 0.5;
+        const px = e.x + Math.cos(a) * R;
+        const py = e.y + Math.sin(a) * R;
+        if(i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      // 破盾进度环
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#a0d8ff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, R + 4, -Math.PI/2, -Math.PI/2 + TAU * shieldRatio);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
     if(e.hp < e.maxHp){
       const w2 = e.r * 2.3;
       const bx = e.x - w2 / 2, by = e.y - e.r - 16;
@@ -4777,8 +4991,8 @@ function explodeAirstrike(b){
     const d = Math.hypot(e.x - b.x, e.y - b.y);
     if(d < R + e.r){
       const k = 1 - d / (R + e.r);
-      const dmg = DMG * (0.5 + k * 0.5) * (e.canMult || 1.0);
-      dealDamage(e, dmg, 'can');
+      const dmg = DMG * (0.5 + k * 0.5);
+      dealDamage(e, dmg, 'airstrike');
       if(e.hp <= 0) killEnemy(e, false);
     }
   }
@@ -5613,17 +5827,16 @@ function drawMissileButton(){
 
 function drawLaserButton(){
   const b = LASER_BTN;
-  const p = Math.min(1, player.energy / LASER_COST);
-  const ready = player.energy >= LASER_COST;
-  const gold = player.laserChargeTimer > 0;
+  const cdRatio = laserCooldown / LASER_COOLDOWN_MAX;
+  const ready = laserCooldown <= 0 && !laser.active;
   const active = laser.active;
+  const gold = player.laserChargeTimer > 0;
   const mainColor = gold ? '#ffd24a' : '#88eeff';
   const R = b.r;
   const pulse = 0.5 + Math.sin(gameTime * 8) * 0.5;
 
   ctx.save();
 
-  // 激活中或就绪的外发光
   if(active || ready){
     const color = active ? '255,255,255' : (gold ? '255,215,80' : '120,240,255');
     ctx.strokeStyle = 'rgba(' + color + ',' + (0.6 - pulse * 0.35) + ')';
@@ -5631,7 +5844,6 @@ function drawLaserButton(){
     ctx.beginPath(); ctx.arc(b.x, b.y, R + 6 + pulse * 6, 0, TAU); ctx.stroke();
   }
 
-  // 圆底：亮青/金色径向渐变
   const bgGrd = ctx.createRadialGradient(b.x - R*0.35, b.y - R*0.35, R*0.1, b.x, b.y, R);
   if(gold){
     bgGrd.addColorStop(0, '#8a6a20');
@@ -5645,88 +5857,32 @@ function drawLaserButton(){
   ctx.fillStyle = bgGrd;
   ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
 
-  // 灌水填充（带波浪，渐变）
-  if(p > 0){
-    ctx.save();
-    ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.clip();
-
-    const waterGrd = ctx.createLinearGradient(b.x, b.y - R, b.x, b.y + R);
-    if(ready){
-      if(gold){
-        waterGrd.addColorStop(0, '#fff0a0');
-        waterGrd.addColorStop(1, '#e8a820');
-      } else {
-        waterGrd.addColorStop(0, '#c0f5ff');
-        waterGrd.addColorStop(1, '#40b0e8');
-      }
-    } else {
-      waterGrd.addColorStop(0, '#7098d0');
-      waterGrd.addColorStop(1, '#305898');
-    }
-    ctx.fillStyle = waterGrd;
-
-    const fillHeight = R * 2 * p;
-    const waterTopBase = b.y + R - fillHeight;
-    const waveAmp = p < 1 ? 4 : 0;
-    const wavePhase = gameTime * 4;
-
+  // 冷却扇形遮罩
+  if(cdRatio > 0){
+    const startAngle = -Math.PI/2 + TAU * (1 - cdRatio);
+    const endAngle = -Math.PI/2 + TAU;
     ctx.beginPath();
-    ctx.moveTo(b.x - R - 2, b.y + R + 2);
-    ctx.lineTo(b.x - R - 2, waterTopBase);
-    const steps = 16;
-    for(let i = 0; i <= steps; i++){
-      const t = i / steps;
-      const wx = b.x - R + R * 2 * t;
-      const waveY = waterTopBase + Math.sin(wavePhase + t * TAU * 2) * waveAmp;
-      ctx.lineTo(wx, waveY);
-    }
-    ctx.lineTo(b.x + R + 2, b.y + R + 2);
+    ctx.moveTo(b.x, b.y);
+    ctx.arc(b.x, b.y, R, startAngle, endAngle);
     ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
     ctx.fill();
-
-    if(p < 1){
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for(let i = 0; i <= steps; i++){
-        const t = i / steps;
-        const wx = b.x - R + R * 2 * t;
-        const waveY = waterTopBase + Math.sin(wavePhase + t * TAU * 2) * waveAmp;
-        if(i === 0) ctx.moveTo(wx, waveY); else ctx.lineTo(wx, waveY);
-      }
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
-  // 激活中的持续时间圆环
+  // 持续中：环形倒计时
   if(active){
     const remainP = Math.max(0, 1 - laser.timer / laser.duration);
-
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(b.x, b.y, R + 2, 0, TAU); ctx.stroke();
-
     ctx.strokeStyle = gold ? '#ffd24a' : '#88eeff';
     ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.arc(b.x, b.y, R + 2, -Math.PI/2 + TAU * (1 - remainP), -Math.PI/2 + TAU);
     ctx.stroke();
-
-    const remainLaser = Math.max(0, laser.duration - laser.timer);
-    ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.strokeText(remainLaser.toFixed(1) + 's', b.x, b.y + R + 18);
-    ctx.fillStyle = gold ? '#ffd24a' : '#88eeff';
-    ctx.fillText(remainLaser.toFixed(1) + 's', b.x, b.y + R + 18);
-    ctx.textBaseline = 'alphabetic';
   }
 
-  // 边框
   ctx.strokeStyle = active ? '#ffffff' : (ready ? mainColor : 'rgba(110,150,180,0.6)');
   ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
@@ -5750,21 +5906,20 @@ function drawLaserButton(){
   }
   ctx.restore();
 
-  // 非激活时：能量百分比
+  // 文字：冷却剩余 / 就绪
   if(!active){
-    const pct = Math.round(p * 100) + '%';
+    const label = ready ? '就绪' : (laserCooldown.toFixed(1) + 's');
     ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 4;
     ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.strokeText(pct, b.x, b.y + R + 18);
+    ctx.strokeText(label, b.x, b.y + R + 18);
     ctx.fillStyle = ready ? mainColor : '#a0b0b8';
-    ctx.fillText(pct, b.x, b.y + R + 18);
+    ctx.fillText(label, b.x, b.y + R + 18);
     ctx.textBaseline = 'alphabetic';
   }
 
-  // 底部文字
   const label = gold ? '金色激光 (E)' : '激光 (E)';
   ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
   ctx.textAlign = 'center';
@@ -5911,14 +6066,13 @@ function drawSkillTip(){
     const isGold = player.laserChargeTimer > 0;
     title = isGold ? '金色激光' : '激光';
     color = isGold ? '#ffd24a' : '#88eeff';
-    const cost = LASER_COST;
     const dur = laser.duration;
     const countLv = player.buffLevels.laser_count || 0;
     const powerLv = player.buffLevels.laserpower || 0;
     const maxTargets = 1 + countLv + (isGold ? 1 : 0);
     const dps = Math.round(player.laserDamage * 0.35 * (isGold ? 2 : 1));
     const totalDmg = Math.round(dps * dur);
-    lines.push({ k: '能量消耗', v: cost + '' });
+    lines.push({ k: '冷却', v: LASER_COOLDOWN_MAX + ' 秒' });
     lines.push({ k: '持续时间', v: dur.toFixed(1) + ' 秒' });
     lines.push({ k: '触发', v: '自动锁定最近敌人 + 减速' });
     lines.push({ k: '锁定数量', v: maxTargets + ' 个' + (isGold ? '（金色 +1）' : '') });
@@ -6023,23 +6177,18 @@ function heartPath(cx, cy, r){
   ctx.closePath();
 }
 
-function drawHeartAt(cx, cy, r, state){
-  // 底色（空心底）
+function drawHeartAt(cx, cy, r, fillRatio){
+  // fillRatio: 0~1，按比例从左往右填充
   heartPath(cx, cy, r);
   ctx.fillStyle = '#2a1010';
   ctx.fill();
 
-  // 填充部分
-  if(state !== 'empty'){
+  if(fillRatio > 0){
     ctx.save();
     heartPath(cx, cy, r);
     ctx.clip();
     ctx.fillStyle = '#ff4060';
-    if(state === 'full'){
-      ctx.fillRect(cx - r * 2, cy - r * 2, r * 4, r * 4);
-    } else if(state === 'half'){
-      ctx.fillRect(cx - r * 2, cy - r * 2, r * 2, r * 4);
-    }
+    ctx.fillRect(cx - r * 2, cy - r * 2, r * 4 * fillRatio, r * 4);
     // 高光
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.beginPath();
@@ -6048,7 +6197,6 @@ function drawHeartAt(cx, cy, r, state){
     ctx.restore();
   }
 
-  // 描边
   heartPath(cx, cy, r);
   ctx.strokeStyle = '#1a0808';
   ctx.lineWidth = 2;
@@ -6056,28 +6204,18 @@ function drawHeartAt(cx, cy, r, state){
 }
 
 function drawHealthHearts(startX, centerY){
-  const MAX_HEARTS = 5;
   const R = 20;
   const GAP = 10;
   const slotW = R * 2 + GAP;
 
-  // 内部 HP（100 上限）换算成 10 滴血
-  const totalDrops = 10;
-  const dropPerHp = totalDrops / player.maxHp;
-  const dropsLeft = Math.max(0, Math.ceil(player.hp * dropPerHp));
+  const totalHearts = Math.ceil(player.maxHp / 4);  // 每颗心 4 单位
 
-  for(let i = 0; i < MAX_HEARTS; i++){
+  for(let i = 0; i < totalHearts; i++){
     const cx = startX + i * slotW + R;
     const cy = centerY;
-    const leftHalf  = (i * 2 + 1) <= dropsLeft;
-    const rightHalf = (i * 2 + 2) <= dropsLeft;
-
-    let state;
-    if(leftHalf && rightHalf) state = 'full';
-    else if(leftHalf) state = 'half';
-    else state = 'empty';
-
-    drawHeartAt(cx, cy, R, state);
+    // 这颗心还剩多少单位（0~4）
+    const unitsInHeart = Math.max(0, Math.min(4, player.hp - i * 4));
+    drawHeartAt(cx, cy, R, unitsInHeart / 4);
   }
 }
 
@@ -6275,7 +6413,7 @@ function drawHUD(){
 
   // 第一行：第 N 关 / 第 N 波
   const titleText = isTutorial
-    ? ('第 ' + currentStage + ' 关')
+    ? ('教学 · 第 ' + Math.max(1, waveInStage) + ' 波')
     : ('第 ' + Math.max(1, wave) + ' 波');
   ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
   ctx.lineWidth = 4;
@@ -6985,6 +7123,29 @@ function drawMainMenu(){
   drawMenuButton(MENU_START_BTN, '开 始 游 戏', '#ff8fb0', '#c84870', 0);
   drawMenuButton(MENU_LB_BTN,    '排 行 榜',     '#ffb84a', '#c87820', 1);
   drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明',  '#7fb8ff', '#3878b8', 2);
+
+  // 隐藏操作反馈 toast
+  if(menuToast.life > 0){
+    const a = Math.min(1, menuToast.life / 0.4);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
+    const tw = ctx.measureText(menuToast.text).width;
+    const bx = W/2, by = 200;
+    rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
+    ctx.fillStyle = 'rgba(20, 40, 30, 0.95)';
+    ctx.fill();
+    ctx.strokeStyle = '#7fe0a0';
+    ctx.lineWidth = 2;
+    rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
+    ctx.stroke();
+    ctx.fillStyle = '#c8f5d8';
+    ctx.fillText(menuToast.text, bx, by);
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
 }
 
 // ================= 首屏启动页 =================
@@ -7467,7 +7628,7 @@ function returnToMenu(){
   // 清空世界，防止残留
   enemies = []; bullets = []; eBullets = []; cans = [];
   particles = []; rings = []; burnMarks = []; drops = [];
-  missileList = []; energyParticles = [];
+  missileList = [];
   floatTexts = [];
   wave = 0;
   score = 0;
@@ -8061,11 +8222,11 @@ function drawTutorialScreen(){
     ctx.fillStyle = tg;
     ctx.fillText(step.title, W/2, 100);
 
-    // 演示区
-    const demoW = 420;
-    const demoH = 220;
+    // 演示区：屏幕居中
+    const demoW = 460;
+    const demoH = 260;
     const demoX = (W - demoW) / 2;
-    const demoY = 160;
+    const demoY = H / 2 - demoH / 2 - 40;
     drawTutorialDemo(step.demo, demoX, demoY, demoW, demoH);
 
     // 描述
@@ -8375,11 +8536,12 @@ function demoCan(x, y, w, h, t){
     ctx.drawImage(catSprite.img, catX - 35, catY - 35, 70, 70);
   }
 
-  // 4 只小老鼠
+  // 10 只小老鼠，密集挤在一起
   const enemySprite = SPRITES['enemy_zombie'];
   const offsets = [
-    { dx: -20, dy: -14 }, { dx: 20, dy: -14 },
-    { dx: -20, dy: 16 },  { dx: 20, dy: 16 }
+    { dx: -30, dy: -20 }, { dx: -10, dy: -24 }, { dx: 12, dy: -22 }, { dx: 30, dy: -18 },
+    { dx: -36, dy: 2 },   { dx: -14, dy: -2 },  { dx: 8, dy: -2 },   { dx: 32, dy: 2 },
+    { dx: -26, dy: 20 },  { dx: -6, dy: 22 },   { dx: 14, dy: 22 },  { dx: 32, dy: 20 }
   ];
   const exploded = t >= 1.0;
   for(const off of offsets){
@@ -8528,9 +8690,55 @@ function demoMissile(x, y, w, h, t){
     ctx.drawImage(catSprite.img, catX - 35, catY - 35, 70, 70);
   }
 
-  const enemySprite = SPRITES['enemy_skeleton'] || SPRITES['enemy_zombie'];
+  const enemySprite = SPRITES['enemy_armored'] || SPRITES['enemy_zombie'];
+  const shieldActive = t < 1.5;
+  const shieldBreak  = t >= 1.5 && t < 1.75;
   if(enemySprite && enemySprite.loaded && enemySprite.img){
-    ctx.drawImage(enemySprite.img, targetX - 25, targetY - 25, 50, 50);
+    ctx.drawImage(enemySprite.img, targetX - 30, targetY - 30, 60, 60);
+    // 护盾六边形
+    if(shieldActive || shieldBreak){
+      const R = 44;
+      const pulse = 0.5 + Math.sin(gameTime * 6) * 0.5;
+      ctx.save();
+      if(shieldBreak){
+        const k = 1 - (t - 1.5) / 0.25;
+        ctx.globalAlpha = k * 0.9;
+        // 破盾瞬间向外扩散
+        const exR = R + (1 - k) * 26;
+        ctx.strokeStyle = '#a0d8ff';
+        ctx.lineWidth = 4 * k;
+        ctx.beginPath();
+        for(let i = 0; i < 6; i++){
+          const a = -Math.PI / 2 + i * TAU / 6 + gameTime * 0.5;
+          const px = targetX + Math.cos(a) * exR;
+          const py = targetY + Math.sin(a) * exR;
+          if(i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.globalAlpha = 0.55 + pulse * 0.25;
+        // 内部淡蓝填充
+        ctx.fillStyle = 'rgba(160, 216, 255, ' + (0.15 + pulse * 0.1) + ')';
+        ctx.beginPath();
+        for(let i = 0; i < 6; i++){
+          const a = -Math.PI / 2 + i * TAU / 6 + gameTime * 0.5;
+          const px = targetX + Math.cos(a) * R;
+          const py = targetY + Math.sin(a) * R;
+          if(i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        // 外边框
+        ctx.globalAlpha = 0.85;
+        ctx.strokeStyle = '#a0d8ff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   // 导弹 0.3~1.5s
@@ -8573,9 +8781,9 @@ function demoMissile(x, y, w, h, t){
     ctx.restore();
   }
 
-  // 爆炸 1.5~2.1s
-  if(t > 1.5 && t < 2.1){
-    const p2 = (t - 1.5) / 0.6;
+  // 爆炸 1.6~2.2s（护盾破碎后再炸）
+  if(t > 1.6 && t < 2.2){
+    const p2 = (t - 1.6) / 0.6;
     ctx.save();
     ctx.globalAlpha = 1 - p2;
     const g = ctx.createRadialGradient(targetX, targetY, 0, targetX, targetY, 40 * p2 + 15);
@@ -8680,7 +8888,7 @@ function demoFrozenBullet(x, y, w, h, t){
     ctx.drawImage(catSprite.img, catX - 32, catY - 32, 64, 64);
   }
 
-  const enemySprite = SPRITES['enemy_zombie'];
+  const enemySprite = SPRITES['enemy_runner'] || SPRITES['enemy_zombie'];
   const frozen = t > 0.9;
 
   // 敌人（冻结后保持冰蓝色调）
@@ -9133,7 +9341,6 @@ function render(){
 
   drawMissiles();
   drawAirstrikeBombs();
-  drawEnergyParticles();
   drawBubble();
   drawFloatTexts();
 
