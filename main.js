@@ -257,11 +257,11 @@ const SPRITES = {
   catbro:   { img: null, loaded: false },
   catbro2:  { img: null, loaded: false },
   grass:    { img: null, loaded: false },
-  // 屋顶 / 水泥地 / 夜晚草地效果一般，先注释保留
-  // bg_roof:        { img: null, loaded: false },
-  // bg_concrete:    { img: null, loaded: false },
-  // bg_grass_night: { img: null, loaded: false },
-  bg_beach:       { img: null, loaded: false }
+  bg_beach: { img: null, loaded: false },
+
+  // ★ 新增：战斗背景 / 菜单背景
+  bg_battle: { img: null, loaded: false },
+  bg_menu:   { img: null, loaded: false }
 };
 
 // ===== 背景配置 =====
@@ -368,6 +368,14 @@ function initSprites(){
   // ===== 沙滩背景（屋顶 / 水泥地 / 夜晚草地暂不使用）=====
   loadImage('images/bg_beach.png', (img, ok) => {
     if(ok){ SPRITES.bg_beach.img = img; SPRITES.bg_beach.loaded = true; }
+  });
+
+  // ★ 新增：bg_battle.png / bg_menu.png
+  loadImage('images/bg_battle.png', (img, ok) => {
+    if(ok){ SPRITES.bg_battle.img = img; SPRITES.bg_battle.loaded = true; }
+  });
+  loadImage('images/bg_menu.png', (img, ok) => {
+    if(ok){ SPRITES.bg_menu.img = img; SPRITES.bg_menu.loaded = true; }
   });
 
   // loadImage('images/bg_roof.png', (img, ok) => {
@@ -703,7 +711,7 @@ function drawLeaderboardScreen(){
     drawAppOverlay(0.88);
   }
 
-  drawAppTitle('历史排行榜', W/2, 110, 42);
+  drawAppTitle('历 史 战 绩', W/2, 110, 42);
 
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
@@ -802,8 +810,19 @@ function drawLeaderboardScreen(){
     }
   }
 
-  drawAppButton(LB_CLOSE_BTN, '关 闭', '#ff8fb0', '#c84870', { fontSize: 24 });
+  // ★ 关闭按钮上方提示
+  {
+    const hintY = LB_CLOSE_BTN.y - LB_CLOSE_BTN.h/2 - 16;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeText('点击可查看详细战斗数据', W/2, hintY);
+    ctx.fillStyle = '#d878a0';
+    ctx.fillText('点击可查看详细战斗数据', W/2, hintY);
+  }
 
+  drawAppButton(LB_CLOSE_BTN, '关 闭', '#ff8fb0', '#c84870', { fontSize: 24 });
   if(lbBuffPopup >= 0){
     drawLbBuffPopup();
   }
@@ -848,17 +867,8 @@ function drawLbBuffPopup(){
   const panelX = (W - panelW) / 2;
   const panelY = Math.max(18, (H - panelH) / 2);
 
-  // 面板底
-  rr(panelX, panelY, panelW, panelH, 16);
-  const grd = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-  grd.addColorStop(0, 'rgba(255, 250, 246, 0.98)');
-  grd.addColorStop(1, 'rgba(255, 230, 240, 0.98)');
-  ctx.fillStyle = grd;
-  ctx.fill();
-  ctx.strokeStyle = '#ff8fb0';
-  ctx.lineWidth = 3;
-  rr(panelX, panelY, panelW, panelH, 16);
-  ctx.stroke();
+  // 面板底（新素材）
+  UI.drawPanel(ctx, panelX, panelY, panelW, panelH, 'panel_bg');
 
   // 标题
   ctx.textAlign = 'center';
@@ -4626,7 +4636,18 @@ function drawGroundDecoration(d){
 }
 
 function drawGround(){
-  // 根据 currentBgKey 拿对应背景图
+  // ★ 优先用 bg_battle.png 铺满整个 WORLD
+  const battleSpr = SPRITES.bg_battle;
+  if(battleSpr && battleSpr.loaded && battleSpr.img){
+    ctx.drawImage(battleSpr.img, 0, 0, WORLD.w, WORLD.h);
+    // 边缘轻微描边，保留原本的氛围
+    ctx.strokeStyle = 'rgba(120,200,140,0.22)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, WORLD.w, WORLD.h);
+    return;
+  }
+
+  // ===== 兜底：原来的草地/沙滩 pattern 逻辑 =====
   const spriteKey = BACKGROUND_KEYS[currentBgKey] || 'grass';
   const spr = SPRITES[spriteKey];
 
@@ -4637,7 +4658,6 @@ function drawGround(){
     }
     pattern = spr.pattern;
   } else {
-    // 加载失败 → 回退草地
     pattern = grassPattern;
   }
 
@@ -4653,7 +4673,6 @@ function drawGround(){
     ctx.fillRect(0, 0, WORLD.w, WORLD.h);
   }
 
-  // ★ 装饰只画在草地上（花朵、草丛、补丁）
   if(currentBgKey === 'grass'){
     for(const d of groundDecorations){
       drawGroundDecoration(d);
@@ -7453,6 +7472,14 @@ function drawCutePoster(){
 
 // 完整可爱背景：天空 + 云 + 太阳 + 山丘 + 花瓣 + 暗角
 function drawAppBackground(){
+  // ★ 优先用 bg_menu.png
+  const menuSpr = SPRITES.bg_menu;
+  if(menuSpr && menuSpr.loaded && menuSpr.img){
+    ctx.drawImage(menuSpr.img, 0, 0, W, H);
+    return;
+  }
+
+  // ===== 兜底：原来的可爱背景 =====
   const skyGrd = ctx.createLinearGradient(0, 0, 0, H);
   skyGrd.addColorStop(0,    '#ffe8f2');
   skyGrd.addColorStop(0.35, '#fff5e0');
@@ -7546,8 +7573,7 @@ function drawMainMenu(){
 
   // 按钮（粉 / 黄 / 蓝）
   drawMenuButton(MENU_START_BTN, '开 始 游 戏', '#ff8fb0', '#c84870', 0);
-  drawMenuButton(MENU_LB_BTN,    '排 行 榜',     '#ffb84a', '#c87820', 1);
-  drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明',  '#7fb8ff', '#3878b8', 2);
+drawMenuButton(MENU_LB_BTN,    '历 史 战 绩',  '#ffb84a', '#c87820', 1);  drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明',  '#7fb8ff', '#3878b8', 2);
 
   // 隐藏操作反馈 toast
   if(menuToast.life > 0){
@@ -8065,14 +8091,10 @@ function drawConfirmRestart(){
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(0, 0, W, H);
 
-  // 对话框面板
+  // 对话框面板（新素材）
   const boxW = 460, boxH = 300;
   const boxX = W/2 - boxW/2, boxY = H/2 - boxH/2 - 30;
-  ctx.fillStyle = 'rgba(20,14,12,0.98)';
-  ctx.fillRect(boxX, boxY, boxW, boxH);
-  ctx.strokeStyle = '#ff7a5a';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(boxX, boxY, boxW, boxH);
+  UI.drawPanel(ctx, boxX, boxY, boxW, boxH, 'panel_bg');
 
   // 标题
   ctx.textAlign = 'center';
@@ -8135,8 +8157,7 @@ function drawPauseOverlay(){
   drawDamageStats(W / 2, 200, false);
 
   drawAppButton(RESUME_BTN,     '继 续',     '#7fe0a0', '#289858', { fontSize: 30 });
-  drawAppButton(PAUSE_LB_BTN,   '排行榜',    '#ffd24a', '#c87820', { fontSize: 22 });
-  drawAppButton(PAUSE_HELP_BTN, '玩法说明',  '#7fb8ff', '#3878b8', { fontSize: 22 });
+  drawAppButton(PAUSE_LB_BTN,   '历史战绩',  '#ffd24a', '#c87820', { fontSize: 22 });  drawAppButton(PAUSE_HELP_BTN, '玩法说明',  '#7fb8ff', '#3878b8', { fontSize: 22 });
   drawAppButton(RESTART_BTN,    '退出游戏',  '#ff8fb0', '#c84870', { fontSize: 22 });
 
   ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
@@ -8173,40 +8194,8 @@ function drawBuffSelect(){
   const panelX = (W - panelW) / 2;
   const panelY = (H - panelH) / 2;
 
-  // ===== 背景面板 =====
-  rr(panelX, panelY, panelW, panelH, 24);
-  const panelGrd = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-  panelGrd.addColorStop(0, 'rgba(20, 36, 26, 0.94)');
-  panelGrd.addColorStop(1, 'rgba(8, 20, 14, 0.94)');
-  ctx.fillStyle = panelGrd;
-  ctx.fill();
-
-  // 外边框发光
-  ctx.save();
-  ctx.shadowColor = 'rgba(140, 240, 180, 0.7)';
-  ctx.shadowBlur = 22;
-  ctx.strokeStyle = 'rgba(140, 240, 180, 0.85)';
-  ctx.lineWidth = 3;
-  rr(panelX, panelY, panelW, panelH, 24);
-  ctx.stroke();
-  ctx.restore();
-
-  // 内层细线
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-  ctx.lineWidth = 1;
-  rr(panelX + 6, panelY + 6, panelW - 12, panelH - 12, 20);
-  ctx.stroke();
-
-  // 顶部高光
-  ctx.save();
-  rr(panelX, panelY, panelW, panelH, 24);
-  ctx.clip();
-  const hl = ctx.createLinearGradient(0, panelY, 0, panelY + 14);
-  hl.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-  hl.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = hl;
-  ctx.fillRect(panelX, panelY, panelW, 14);
-  ctx.restore();
+  // ===== 背景面板（新素材） =====
+  UI.drawPanel(ctx, panelX, panelY, panelW, panelH, 'panel_bg');
 
   // ===== 标题区 =====
   ctx.textAlign = 'center';
@@ -8614,8 +8603,7 @@ function drawDeadScreen(){
 
   drawDamageStats(W/2, 180, false);
 
-  drawAppButton(DEAD_LB_BTN,      '排行榜',   '#ffd24a', '#c87820', { fontSize: 24 });
-  drawAppButton(DEAD_RESTART_BTN, '重新开始', '#7fe0a0', '#289858', { fontSize: 24 });
+  drawAppButton(DEAD_LB_BTN,      '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });  drawAppButton(DEAD_RESTART_BTN, '重新开始', '#7fe0a0', '#289858', { fontSize: 24 });
 
   ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = 'rgba(255, 220, 200, 0.7)';
@@ -9424,39 +9412,8 @@ function drawStageClearScreen(){
   const panelX = 50;
   const panelY = (H - panelH) / 2;
 
-  rr(panelX, panelY, panelW, panelH, 24);
-  const panelGrd = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
-  panelGrd.addColorStop(0, 'rgba(20, 36, 26, 0.97)');
-  panelGrd.addColorStop(1, 'rgba(8, 20, 14, 0.97)');
-  ctx.fillStyle = panelGrd;
-  ctx.fill();
-
-  // 外发光
-  ctx.save();
-  ctx.shadowColor = 'rgba(255, 210, 74, 0.75)';
-  ctx.shadowBlur = 24;
-  ctx.strokeStyle = 'rgba(255, 210, 74, 0.9)';
-  ctx.lineWidth = 3;
-  rr(panelX, panelY, panelW, panelH, 24);
-  ctx.stroke();
-  ctx.restore();
-
-  // 内线
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-  ctx.lineWidth = 1;
-  rr(panelX + 6, panelY + 6, panelW - 12, panelH - 12, 20);
-  ctx.stroke();
-
-  // 顶部高光
-  ctx.save();
-  rr(panelX, panelY, panelW, panelH, 24);
-  ctx.clip();
-  const hl = ctx.createLinearGradient(0, panelY, 0, panelY + 14);
-  hl.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
-  hl.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = hl;
-  ctx.fillRect(panelX, panelY, panelW, 14);
-  ctx.restore();
+  // 面板底（新素材）
+  UI.drawPanel(ctx, panelX, panelY, panelW, panelH, 'panel_bg');
 
   // ===== 标题（严格居中） =====
   const titleText = info.isLastStage ? '教学完成' : ('第 ' + info.finishedStage + ' 关 通过');
