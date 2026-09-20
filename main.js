@@ -327,6 +327,7 @@ function initSprites(){
   }
 }
 initSprites();
+UI.loadAll();   // ★ 新加这一行
 
 // ================= 音频 =================
 let actx = null;
@@ -6775,80 +6776,13 @@ function drawAppOverlay(alpha){
 // 统一可爱按钮
 // opts: { fontSize, animIdx, pulse }
 function drawAppButton(b, text, borderColor, textColor, opts){
-  opts = opts || {};
-  const fontSize = opts.fontSize || 24;
-  const animIdx = (opts.animIdx === undefined) ? -1 : opts.animIdx;
-  const usePulse = !!opts.pulse;
+  // 根据边框颜色，映射到对应的按钮素材
+  let btnKey = 'btn_yellow';
+  if(borderColor === '#7fb8ff') btnKey = 'btn_blue';
+  else if(borderColor === '#ff8fb0' || borderColor === '#c84870') btnKey = 'btn_red';
+  else if(borderColor === '#7fe0a0') btnKey = 'btn_green';
 
-  const pulse = usePulse
-    ? (0.5 + 0.5 * Math.sin(menuTime * 2 + (animIdx >= 0 ? animIdx : 0) * 0.7))
-    : 0.5;
-
-  let offsetY = 0;
-  let alpha = 1;
-  if(animIdx >= 0){
-    const enterDelay = 0.25 + animIdx * 0.15;
-    const enterP = Math.max(0, Math.min(1, (menuEnterT - enterDelay) / 0.5));
-    const ease = 1 - Math.pow(1 - enterP, 3);
-    offsetY = (1 - ease) * 60;
-    alpha = ease;
-    if(ease <= 0.001) return;
-  }
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.translate(0, offsetY);
-
-  const r = Math.min(b.h / 2, 26);
-
-  // 柔和外发光
-  ctx.save();
-  ctx.shadowColor = borderColor;
-  ctx.shadowBlur = 10 + (usePulse ? pulse * 16 : 0);
-  rr(b.x - b.w/2, b.y - b.h/2, b.w, b.h, r);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.fill();
-  ctx.restore();
-
-  // 奶油内渐变
-  rr(b.x - b.w/2, b.y - b.h/2, b.w, b.h, r);
-  const grd = ctx.createLinearGradient(b.x, b.y - b.h/2, b.x, b.y + b.h/2);
-  grd.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
-  grd.addColorStop(1, 'rgba(255, 235, 245, 0.98)');
-  ctx.fillStyle = grd;
-  ctx.fill();
-
-  // 彩色边框
-  ctx.strokeStyle = borderColor;
-  ctx.lineWidth = 3;
-  rr(b.x - b.w/2, b.y - b.h/2, b.w, b.h, r);
-  ctx.stroke();
-
-  // 顶部高光
-  ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.55 + pulse * 0.35) + ')';
-  rr(b.x - b.w/2 + 14, b.y - b.h/2 + 6, b.w - 28, 4, 2);
-  ctx.fill();
-
-  // 文字
-  ctx.textAlign = 'center';
-  ctx.font = 'bold ' + fontSize + 'px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText(text, b.x, b.y + fontSize * 0.35);
-  ctx.fillStyle = textColor;
-  ctx.fillText(text, b.x, b.y + fontSize * 0.35);
-
-  // 左右小圆点（仅在脉冲模式下显示）
-  if(usePulse){
-    ctx.fillStyle = borderColor;
-    ctx.globalAlpha = alpha * (0.6 + pulse * 0.4);
-    ctx.beginPath();
-    ctx.arc(b.x - b.w/2 + 22, b.y, 5, 0, TAU);
-    ctx.arc(b.x + b.w/2 - 22, b.y, 5, 0, TAU);
-    ctx.fill();
-  }
-
-  ctx.restore();
+  UI.drawButton(ctx, b.x - b.w/2, b.y - b.h/2, b.w, b.h, text, btnKey, opts && opts.fontSize || 24);
 }
 
 // 统一可爱标题

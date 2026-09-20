@@ -4,20 +4,20 @@
   window.UI = {
     assets: {},
   
-    // ================= ¾Å¹¬¸ñÇĞÆ¬±ÈÀı =================
-    // ÊıÖµ = ÇĞÆ¬Õ¼Ô­Í¼¶Ì±ßµÄ±ÈÀı£¨0~1£©
-    // ²»ÓÃ¹ÜÍ¼Æ¬Êµ¼ÊÏñËØ£¬ÇĞÆ¬»á°´±ÈÀı×Ô¶¯Ëã
-    // Èç¹ûÄ³¸öËØ²ÄÀ­Éìºó±ßÔµ±äĞÎ£¬Ö»ĞèÎ¢µ÷Õâ¸öÊıÖµ£¨±ÈÈç´Ó 0.20 µ÷µ½ 0.15£©
+    // ================= ä¹å®«æ ¼åˆ‡ç‰‡æ¯”ä¾‹ =================
+    // æ•°å€¼ = åˆ‡ç‰‡å åŸå›¾çŸ­è¾¹çš„æ¯”ä¾‹ï¼ˆ0~1ï¼‰
+    // ä¸ç”¨ç®¡å›¾ç‰‡å®é™…åƒç´ ï¼Œåˆ‡ç‰‡ä¼šæŒ‰æ¯”ä¾‹è‡ªåŠ¨ç®—
+    // å¦‚æœæŸä¸ªç´ ææ‹‰ä¼¸åè¾¹ç¼˜å˜å½¢ï¼Œåªéœ€å¾®è°ƒè¿™ä¸ªæ•°å€¼ï¼ˆæ¯”å¦‚ä» 0.20 è°ƒåˆ° 0.15ï¼‰
     sliceRatio: {
-      panel:  0.10,   // ÉîÀ¶Ãæ°å£¬ËÄ½Ç×°ÊÎ½ÏĞ¡
-      button: 0.22,   // °´Å¥£¬Ô²½Ç + ¶¥²¿¸ß¹â + µ×²¿ºñ¶È
-      frame:  0.20,   // ·½ĞÎµ×¿ò
-      banner: 0.15,   // ºá·ù£¬Á½²àÑàÎ²
-      bubble: 0.15,   // ¶Ô»°ÆøÅİ
-      bar:    0.50    // ÑªÌõ£¬½ºÄÒĞÎ£¬ÇĞÆ¬È¡Ò»°ë
+      panel:  0.15,
+      button: 0.20,   // â˜… ä» 0.30 æ”¹åˆ° 0.20
+      frame:  0.30,
+      banner: 0.35,
+      bubble: 0.35,
+      bar:    0.50
     },
   
-    // ================= Í¼Æ¬Ô¤¼ÓÔØ =================
+    // ================= å›¾ç‰‡é¢„åŠ è½½ =================
     loadAll(onDone){
       const list = [
         { key: 'panel_bg',   src: 'images/ui/panel_bg.png' },
@@ -57,7 +57,7 @@
           if(loaded >= total && onDone) onDone();
         };
         img.onerror = () => {
-          console.warn('UIËØ²Ä¼ÓÔØÊ§°Ü:', item.src);
+          console.warn('UIç´ æåŠ è½½å¤±è´¥:', item.src);
           loaded++;
           if(loaded >= total && onDone) onDone();
         };
@@ -65,55 +65,58 @@
       }
     },
   
-    // ================= ¾Å¹¬¸ñºËĞÄäÖÈ¾ =================
-    // ×Ô¶¯¸ù¾İÔ­Í¼³ß´ç + ±ÈÀı ÇĞ³ö 9 ¿é£¬À­Éì»æÖÆ
+    // ================= ä¹å®«æ ¼æ ¸å¿ƒæ¸²æŸ“ =================
+    // è‡ªåŠ¨æ ¹æ®åŸå›¾å°ºå¯¸ + æ¯”ä¾‹ åˆ‡å‡º 9 å—ï¼Œæ‹‰ä¼¸ç»˜åˆ¶
     draw9Slice(ctx, img, x, y, w, h, ratio){
       if(!img) return;
   
       const iw = img.width;
       const ih = img.height;
   
-      // ÇĞÆ¬ÏñËØ£ºÈ¡¿í¸ßÀï½ÏĞ¡µÄÄÇ¸ö£¬³ËÒÔ±ÈÀı£¬µÃµ½Õı·½ĞÎÇĞÆ¬
-      // ÕâÑùÎŞÂÛÔ­Í¼ÊÇ 1024x1024 »¹ÊÇ 400x150£¬ÇĞÆ¬¶¼ÊÇÕı·½ĞÎµÄ
-      let s = Math.round(Math.min(iw, ih) * ratio);
+      // æºå›¾åˆ‡ç‰‡å°ºå¯¸ï¼ˆæŒ‰å›¾ç‰‡çŸ­è¾¹æ¯”ä¾‹ï¼‰
+      let sSrc = Math.round(Math.min(iw, ih) * ratio);
+      sSrc = Math.min(sSrc, Math.floor(iw / 2) - 1, Math.floor(ih / 2) - 1);
+      if(sSrc < 1) sSrc = 1;
   
-      // ±£ÏÕ£ºÇĞÆ¬²»ÄÜ³¬¹ıÍ¼Æ¬µÄÒ»°ë
-      s = Math.min(s, Math.floor(iw / 2) - 1, Math.floor(ih / 2) - 1);
-      if(s < 1) s = 1;
+      // ç›®æ ‡åˆ‡ç‰‡å°ºå¯¸ï¼ˆæŒ‰æŒ‰é’®çŸ­è¾¹æ¯”ä¾‹ï¼Œç‹¬ç«‹ç¼©æ”¾ï¼‰
+      // â˜… å…³é”®ï¼šç›®æ ‡åˆ‡ç‰‡ä¸èƒ½è¶…è¿‡æŒ‰é’®å°ºå¯¸çš„ 40%
+      let sDst = Math.round(Math.min(w, h) * ratio);
+      sDst = Math.min(sDst, Math.floor(Math.min(w, h) * 0.40));
+      if(sDst < 1) sDst = 1;
   
-      // 1. ËÄ½Ç£¨²»À­Éì£©
-      ctx.drawImage(img, 0, 0, s, s, x, y, s, s);
-      ctx.drawImage(img, iw - s, 0, s, s, x + w - s, y, s, s);
-      ctx.drawImage(img, 0, ih - s, s, s, x, y + h - s, s, s);
-      ctx.drawImage(img, iw - s, ih - s, s, s, x + w - s, y + h - s, s, s);
+      // 1. å››è§’ï¼ˆæºæ­£æ–¹å½¢ â†’ ç›®æ ‡æ­£æ–¹å½¢ï¼Œç¼©æ”¾æ˜ å°„ï¼‰
+      ctx.drawImage(img, 0, 0, sSrc, sSrc, x, y, sDst, sDst);
+      ctx.drawImage(img, iw - sSrc, 0, sSrc, sSrc, x + w - sDst, y, sDst, sDst);
+      ctx.drawImage(img, 0, ih - sSrc, sSrc, sSrc, x, y + h - sDst, sDst, sDst);
+      ctx.drawImage(img, iw - sSrc, ih - sSrc, sSrc, sSrc, x + w - sDst, y + h - sDst, sDst, sDst);
   
-      // 2. ÉÏÏÂ±ß£¨ºáÏòÀ­Éì£©
-      if(w - s * 2 > 0){
-        ctx.drawImage(img, s, 0, iw - s * 2, s, x + s, y, w - s * 2, s);
-        ctx.drawImage(img, s, ih - s, iw - s * 2, s, x + s, y + h - s, w - s * 2, s);
+      // 2. ä¸Šä¸‹è¾¹ï¼ˆæ¨ªå‘æ‹‰ä¼¸ï¼‰
+      if(w - sDst * 2 > 0){
+        ctx.drawImage(img, sSrc, 0, iw - sSrc * 2, sSrc, x + sDst, y, w - sDst * 2, sDst);
+        ctx.drawImage(img, sSrc, ih - sSrc, iw - sSrc * 2, sSrc, x + sDst, y + h - sDst, w - sDst * 2, sDst);
       }
   
-      // 3. ×óÓÒ±ß£¨×İÏòÀ­Éì£©
-      if(h - s * 2 > 0){
-        ctx.drawImage(img, 0, s, s, ih - s * 2, x, y + s, s, h - s * 2);
-        ctx.drawImage(img, iw - s, s, s, ih - s * 2, x + w - s, y + s, s, h - s * 2);
+      // 3. å·¦å³è¾¹ï¼ˆçºµå‘æ‹‰ä¼¸ï¼‰
+      if(h - sDst * 2 > 0){
+        ctx.drawImage(img, 0, sSrc, sSrc, ih - sSrc * 2, x, y + sDst, sDst, h - sDst * 2);
+        ctx.drawImage(img, iw - sSrc, sSrc, sSrc, ih - sSrc * 2, x + w - sDst, y + sDst, sDst, h - sDst * 2);
       }
   
-      // 4. ÖĞĞÄ£¨Ë«ÏòÀ­Éì£©
-      if(w - s * 2 > 0 && h - s * 2 > 0){
-        ctx.drawImage(img, s, s, iw - s * 2, ih - s * 2,
-                      x + s, y + s, w - s * 2, h - s * 2);
+      // 4. ä¸­å¿ƒï¼ˆåŒå‘æ‹‰ä¼¸ï¼‰
+      if(w - sDst * 2 > 0 && h - sDst * 2 > 0){
+        ctx.drawImage(img, sSrc, sSrc, iw - sSrc * 2, ih - sSrc * 2,
+                      x + sDst, y + sDst, w - sDst * 2, h - sDst * 2);
       }
     },
   
-    // ================= Í¨ÓÃ×é¼ş£ºÃæ°å =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šé¢æ¿ =================
     drawPanel(ctx, x, y, w, h, panelKey){
       const img = UI.assets[panelKey || 'panel_bg'];
       if(!img) return;
       UI.draw9Slice(ctx, img, x, y, w, h, UI.sliceRatio.panel);
     },
   
-    // ================= Í¨ÓÃ×é¼ş£ººá·ù =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šæ¨ªå¹… =================
     drawBanner(ctx, x, y, w, h, text, bannerKey, textSize){
       const img = UI.assets[bannerKey || 'banner_main'];
       if(!img) return;
@@ -133,7 +136,7 @@
       }
     },
   
-    // ================= Í¨ÓÃ×é¼ş£º°´Å¥ =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šæŒ‰é’® =================
     drawButton(ctx, x, y, w, h, text, btnKey, textSize){
       const img = UI.assets[btnKey || 'btn_yellow'];
       if(!img) return;
@@ -153,37 +156,37 @@
       }
     },
   
-    // ================= Í¨ÓÃ×é¼ş£ºÍ¼±êµ×¿ò =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šå›¾æ ‡åº•æ¡† =================
     drawFrame(ctx, x, y, w, h, frameKey){
       const img = UI.assets[frameKey || 'frame_blue'];
       if(!img) return;
       UI.draw9Slice(ctx, img, x, y, w, h, UI.sliceRatio.frame);
     },
   
-    // ================= Í¨ÓÃ×é¼ş£ºÍ¼±ê =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šå›¾æ ‡ =================
     drawIcon(ctx, key, x, y, size){
       const img = UI.assets[key];
       if(!img) return;
       ctx.drawImage(img, x, y, size, size);
     },
   
-    // ================= Í¨ÓÃ×é¼ş£º¶Ô»°ÆøÅİ =================
-    // ×¢Òâ£ºÆøÅİ´øÎ²°Í£¬ÇĞÆ¬¾Å¹¬¸ñ»áÀ­ÉìÎ²°Í£¬ËùÒÔÍÆ¼öÓÃ¹Ì¶¨³ß´ç
+    // ================= é€šç”¨ç»„ä»¶ï¼šå¯¹è¯æ°”æ³¡ =================
+    // æ³¨æ„ï¼šæ°”æ³¡å¸¦å°¾å·´ï¼Œåˆ‡ç‰‡ä¹å®«æ ¼ä¼šæ‹‰ä¼¸å°¾å·´ï¼Œæ‰€ä»¥æ¨èç”¨å›ºå®šå°ºå¯¸
     drawBubble(ctx, x, y, w, h, bubbleKey){
       const img = UI.assets[bubbleKey || 'bubble'];
       if(!img) return;
       UI.draw9Slice(ctx, img, x, y, w, h, UI.sliceRatio.bubble);
     },
   
-    // ================= Í¨ÓÃ×é¼ş£ºÑªÌõ / ½ø¶ÈÌõ =================
+    // ================= é€šç”¨ç»„ä»¶ï¼šè¡€æ¡ / è¿›åº¦æ¡ =================
     drawBar(ctx, x, y, w, h, ratio, fillKey){
       const track = UI.assets['bar_track'];
       if(!track) return;
   
-      // µ×¿ò
+      // åº•æ¡†
       UI.draw9Slice(ctx, track, x, y, w, h, UI.sliceRatio.bar);
   
-      // Ìî³ä
+      // å¡«å……
       const fill = UI.assets[fillKey || 'bar_fill_green'];
       if(fill && ratio > 0){
         ctx.save();
