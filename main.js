@@ -839,7 +839,6 @@ function drawLbBuffPopup(){
   const buffLevels = entry.buffLevels || {};
   const buffIds = Object.keys(buffLevels).filter(k => buffLevels[k] > 0);
 
-  // 伤害分析数据
   const stats = entry.damageStats || {};
   const statEntries = Object.keys(stats)
     .filter(k => stats[k] > 0)
@@ -848,16 +847,26 @@ function drawLbBuffPopup(){
   for(const k of statEntries) statTotal += stats[k];
   if(statTotal <= 0) statTotal = 1;
 
+  // ===== 主题色（适配深蓝面板） =====
+  const C_TITLE   = '#ffe080';                     // 主标题：金色
+  const C_SUB     = 'rgba(180, 220, 240, 0.9)';    // 副标题：淡青
+  const C_SECTION = '#7fd0ff';                     // 小节标题：亮青
+  const C_MUTED   = 'rgba(150, 195, 215, 0.65)';   // 空态/次要文字
+  const C_NUM     = '#dfe9e3';                     // 数值：近白
+  const C_LINE    = 'rgba(120, 200, 240, 0.35)';   // 分隔线
+  const C_TRACK   = 'rgba(0, 20, 40, 0.6)';        // 进度条底
+
+  const PAD = 64;   // ★ 从 40 改到 64，避开 panel_bg 四角装饰
   const panelW = W - 60;
   const cols = 2;
   const buffRows = Math.max(1, Math.ceil(buffIds.length / cols));
   const buffRowH = 54;
-  const headerH = 118;
+  const headerH = 130;
   const sectionGap = 18;
   const dmgTitleH = 42;
   const dmgRowH = 42;
   const dmgRows = Math.max(1, statEntries.length);
-  const footerH = 90;
+  const footerH = 100;
 
   const panelH = headerH
     + buffRows * buffRowH
@@ -867,28 +876,36 @@ function drawLbBuffPopup(){
   const panelX = (W - panelW) / 2;
   const panelY = Math.max(18, (H - panelH) / 2);
 
-  // 面板底（新素材）
+  // 面板底
   UI.drawPanel(ctx, panelX, panelY, panelW, panelH, 'panel_bg');
 
-  // 标题
+  // ===== 标题 =====
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#c84870';
   ctx.font = 'bold 26px "Microsoft YaHei",sans-serif';
-  ctx.fillText('第 ' + entry.wave + ' 波 · 本局详情', W/2, panelY + 44);
+  ctx.fillStyle = C_TITLE;
+  ctx.fillText('第 ' + entry.wave + ' 波 · 本局详情', W/2, panelY + 52);
 
   ctx.font = '15px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(200, 100, 130, 0.85)';
+  ctx.fillStyle = C_SUB;
   ctx.fillText(
     '共 ' + buffIds.length + ' 种强化 · 总伤害 ' + Math.round(statTotal),
-    W/2, panelY + 72
+    W/2, panelY + 82
   );
 
+  // 金色装饰短线
+  ctx.strokeStyle = 'rgba(255, 210, 74, 0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(W/2 - 40, panelY + 96);
+  ctx.lineTo(W/2 + 40, panelY + 96);
+  ctx.stroke();
+
   // 分隔线
-  ctx.strokeStyle = 'rgba(255, 160, 200, 0.5)';
+  ctx.strokeStyle = C_LINE;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(panelX + 20, panelY + 94);
-  ctx.lineTo(panelX + panelW - 20, panelY + 94);
+  ctx.moveTo(panelX + PAD, panelY + 108);
+  ctx.lineTo(panelX + panelW - PAD, panelY + 108);
   ctx.stroke();
 
   // ===== 强化列表 =====
@@ -896,15 +913,15 @@ function drawLbBuffPopup(){
 
   ctx.textAlign = 'left';
   ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = '#c84870';
-  ctx.fillText('强化选择', panelX + 22, cursorY - 8);
+  ctx.fillStyle = C_SECTION;
+  ctx.fillText('强化选择', panelX + PAD, cursorY - 8);
 
   if(buffIds.length === 0){
     ctx.font = '15px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = '#a88090';
-    ctx.fillText('暂无强化记录', panelX + 22, cursorY + 24);
+    ctx.fillStyle = C_MUTED;
+    ctx.fillText('暂无强化记录', panelX + PAD, cursorY + 24);
   } else {
-    const colW = (panelW - 40) / cols;
+    const colW = (panelW - PAD * 2) / cols;
     for(let i = 0; i < buffIds.length; i++){
       const id = buffIds[i];
       const def = BUFFS.find(b => b.id === id);
@@ -912,7 +929,7 @@ function drawLbBuffPopup(){
       const lv = buffLevels[id];
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const cx = panelX + 20 + col * colW;
+      const cx = panelX + PAD + col * colW;
       const cy = cursorY + row * buffRowH;
 
       drawBuffIcon(def.id, cx + 20, cy + buffRowH / 2 - 6, 28, def.color);
@@ -923,7 +940,7 @@ function drawLbBuffPopup(){
       ctx.fillText(def.name, cx + 42, cy + 18);
 
       ctx.font = '12px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = 'rgba(120, 90, 100, 0.8)';
+      ctx.fillStyle = C_MUTED;
       ctx.fillText('Lv.' + lv, cx + 42, cy + 36);
     }
   }
@@ -931,36 +948,36 @@ function drawLbBuffPopup(){
   cursorY += buffRows * buffRowH + sectionGap;
 
   // 分隔线
-  ctx.strokeStyle = 'rgba(255, 160, 200, 0.5)';
+  ctx.strokeStyle = C_LINE;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(panelX + 20, cursorY - sectionGap / 2);
-  ctx.lineTo(panelX + panelW - 20, cursorY - sectionGap / 2);
+  ctx.moveTo(panelX + PAD, cursorY - sectionGap / 2);
+  ctx.lineTo(panelX + panelW - PAD, cursorY - sectionGap / 2);
   ctx.stroke();
 
   // ===== 伤害分析 =====
   ctx.textAlign = 'left';
   ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = '#c84870';
-  ctx.fillText('伤害分析', panelX + 22, cursorY + 16);
+  ctx.fillStyle = C_SECTION;
+  ctx.fillText('伤害分析', panelX + PAD, cursorY + 16);
 
   cursorY += dmgTitleH - 4;
 
   if(statEntries.length === 0){
     ctx.font = '15px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = '#a88090';
-    ctx.fillText('暂无伤害数据', panelX + 22, cursorY + 22);
+    ctx.fillStyle = C_MUTED;
+    ctx.fillText('暂无伤害数据', panelX + PAD, cursorY + 22);
   } else {
     const nameW = 78;
     const numW = 128;
-    const barX = panelX + 22 + nameW;
-    const barMaxW = panelW - 22 - nameW - numW - 24;
-    const numRightX = panelX + panelW - 22;
+    const barX = panelX + PAD + nameW;
+    const barMaxW = panelW - PAD * 2 - nameW - numW - 24;
+    const numRightX = panelX + panelW - PAD;
     const barH = 14;
 
     for(let i = 0; i < statEntries.length; i++){
       const k = statEntries[i];
-      const w = WEAPON_NAMES[k] || { name: k, color: '#888888' };
+      const w = WEAPON_NAMES[k] || { name: k, color: '#cccccc' };
       const dmg = stats[k];
       const ratio = dmg / statTotal;
       const pct = Math.round(ratio * 100);
@@ -970,22 +987,24 @@ function drawLbBuffPopup(){
       ctx.textAlign = 'left';
       ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = w.color;
-      ctx.fillText(w.name, panelX + 22, cy + 24);
+      ctx.fillText(w.name, panelX + PAD, cy + 24);
 
-      // 进度条
+      // 进度条底（深色，在深蓝面板上更沉）
       const barY = cy + 14;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      ctx.fillStyle = C_TRACK;
       ctx.fillRect(barX, barY, barMaxW, barH);
+
+      // 进度条填充
       const fillW = Math.max(3, barMaxW * ratio);
       ctx.fillStyle = w.color;
       ctx.fillRect(barX, barY, fillW, barH);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.fillRect(barX, barY, fillW, 3);
 
-      // 数字 (百分比)
+      // 数字（近白）
       ctx.textAlign = 'right';
       ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = '#6a4a50';
+      ctx.fillStyle = C_NUM;
       ctx.fillText(Math.round(dmg) + ' (' + pct + '%)', numRightX, cy + 24);
     }
   }
@@ -1007,6 +1026,7 @@ function drawLbBuffPopup(){
   ctx.fillStyle = '#c84870';
   ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
   ctx.fillText('关 闭', W / 2, btnY + 35);
 
   lbPopupCloseRect = { x: btnX, y: btnY, w: btnW, h: btnH };
