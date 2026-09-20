@@ -1,0 +1,8 @@
+通用风格前缀
+2D casual game art, thick dark outlines, highly saturated bright colors, flat matte shading, sticker style, badge style, clean vector-like, chunky look, no glossy highlights, no 3D bevel, no jelly texture, no realistic details, no drop shadow, no text, no labels, no watermark, no logo，
+
+
+
+通用ui风格前缀：
+2D casual game UI, thick dark outlines, highly saturated bright colors, flat matte shading, solid color fills, minimalist internal decorative patterns, sticker style, badge style, clean vector-like, chunky look, no glossy highlights, no 3D bevel, no jelly texture, no realistic details, transparent background, game asset, symmetrical border, consistent corner radius, stretchable flat center area, no complex textures in the center, no drop shadow, no floor shadow, no cast shadow, no soft shadow, isolated object, object centered with generous padding, clean borders, no text, no labels, no watermark, no logo，
+中文释义：2D休闲游戏UI，深色粗描边，高饱和明亮颜色，平涂哑光阴影，纯色填充，极简的内部装饰图案，简单的平面投影，贴纸风，徽章风，干净的矢量感，厚重感，无光泽高光，无3D斜角，无果冻质感，无写实细节，透明背景，游戏素材)
