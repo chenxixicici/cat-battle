@@ -43,8 +43,8 @@ const RESTART_BTN      = { x: W/2, y: 880, w: 280, h: 58 };
 const DEAD_LB_BTN      = { x: W/2 - 95, y: H - 150, w: 170, h: 64 };
 const DEAD_RESTART_BTN = { x: W/2 + 95, y: H - 150, w: 170, h: 64 };
 const LB_CLOSE_BTN     = { x: W/2, y: H - 80, w: 240, h: 62 };
-const CONFIRM_YES_BTN = { x: W/2 - 80, y: H/2 + 70, w: 140, h: 60 };
-const CONFIRM_NO_BTN  = { x: W/2 + 80, y: H/2 + 70, w: 140, h: 60 };
+const CONFIRM_NO_BTN  = { x: W/2 - 90, y: H/2 + 70, w: 160, h: 60 };  // 左边：取消
+const CONFIRM_YES_BTN = { x: W/2 + 90, y: H/2 + 70, w: 160, h: 60 };  // 右边：确认
 const AVATAR      = { x: 50, y: 50, r: 36 };
 const HELP_QUICK_BTN = { x: 50, y: 152, r: 32 };
 
@@ -80,6 +80,7 @@ const WEAPON_UNLOCK_NAMES = {
 };
 
 // 主菜单动效状态
+let bootAnimT = 0;   // 启动屏出现动画计时
 let menuTime = 0;
 let menuEnterT = 0;
 let menuTapCount = 0;      // 隐藏操作：连点计数
@@ -713,31 +714,24 @@ function drawLeaderboardScreen(){
 
   drawAppTitle('历 史 战 绩', W/2, 110, 42);
 
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText('前 10 次最佳战绩', W/2, 142);
-  ctx.fillStyle = '#d878a0';
-  ctx.fillText('前 10 次最佳战绩', W/2, 142);
+  drawUIText('最佳 6 次战绩', W/2, 142, 'muted', { size: 18 });
 
   lbTagRects = [];
 
   if(leaderboard.length === 0){
-    ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeText('暂无记录，快去战斗吧！', W/2, H/2);
-    ctx.fillStyle = '#7a5040';
-    ctx.fillText('暂无记录，快去战斗吧！', W/2, H/2);
+    drawUIText('暂无记录，快去战斗吧！', W/2, H/2, 'muted', { size: 20 });
   } else {
     const cardX = 24;
     const cardW = W - 48;
-    const cardH = 92;
-    const gap = 5;
-    let cy = 176;
+    const cardH = 145;
+    const gap = 10;
+    let cy = 170;
 
-    for(let i = 0; i < leaderboard.length; i++){
+    // ★ 最多显示 6 条（存档仍保留 10 条）
+    const maxShow = 6;
+    const showCount = Math.min(maxShow, leaderboard.length);
+
+    for(let i = 0; i < showCount; i++){
       const e = leaderboard[i];
       const x = cardX;
       const y = cy;
@@ -760,46 +754,46 @@ function drawLeaderboardScreen(){
       ctx.stroke();
 
       ctx.textAlign = 'left';
-      ctx.font = 'bold 28px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 36px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = rankColor;
-      ctx.fillText('#' + (i + 1), x + 22, y + 42);
+      ctx.fillText('#' + (i + 1), x + 26, y + 60);
 
-      ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = '#d878a0';
-      ctx.fillText('第 ' + e.wave + ' 波', x + 96, y + 34);
+      drawUIText('第 ' + e.wave + ' 波', x + 116, y + 44, 'title', {
+        size: 26, align: 'left', strokeWidth: 4
+      });
 
-      ctx.textAlign = 'right';
-      ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = '#7a90b8';
-      ctx.fillText('强化 ' + e.buffs, x + cardW - 18, y + 30);
-      ctx.textAlign = 'left';
+      drawUIText('强化 ' + e.buffs, x + cardW - 24, y + 40, 'muted', {
+        size: 20, align: 'right', strokeWidth: 3
+      });
 
-      ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = '#d87820';
-      ctx.fillText('伤害 ' + e.damage, x + 96, y + 58);
+      drawUIText('伤害 ' + e.damage, x + 116, y + 82, 'accent', {
+        size: 24, align: 'left', strokeWidth: 4,
+        glow: true, glowColor: 'rgba(255, 210, 74, 0.6)', glowSize: 10
+      });
 
       if(e.weapons && e.weapons.length > 0){
-        let tagX = x + 96;
-        const tagY = y + 74;
+        let tagX = x + 116;
+        const tagY = y + 118;
         for(const wid of e.weapons){
           const w = WEAPON_NAMES[wid];
           if(!w) continue;
-          ctx.font = 'bold 11px "Microsoft YaHei",sans-serif';
-          const tw = ctx.measureText(w.name).width + 12;
-          if(tagX + tw > x + cardW - 14) break;
-          rr(tagX, tagY - 9, tw, 16, 5);
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
+          const tw = ctx.measureText(w.name).width + 20;
+          if(tagX + tw > x + cardW - 20) break;
+          rr(tagX, tagY - 14, tw, 28, 8);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
           ctx.fill();
           ctx.strokeStyle = w.color;
-          ctx.lineWidth = 1.4;
+          ctx.lineWidth = 1.8;
+          rr(tagX, tagY - 14, tw, 28, 8);
           ctx.stroke();
-          ctx.fillStyle = w.color;
-          ctx.textAlign = 'center';
-          ctx.fillText(w.name, tagX + tw/2, tagY + 3);
-          ctx.textAlign = 'left';
 
+          drawUIText(w.name, tagX + tw/2, tagY + 2, 'body', {
+            size: 16, strokeWidth: 3,
+            glow: true, glowColor: w.color, glowSize: 6
+          });
 
-          tagX += tw + 4;
+          tagX += tw + 6;
         }
       }
 
@@ -811,18 +805,12 @@ function drawLeaderboardScreen(){
   }
 
   // ★ 关闭按钮上方提示
-  {
-    const hintY = LB_CLOSE_BTN.y - LB_CLOSE_BTN.h/2 - 16;
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeText('点击可查看详细战斗数据', W/2, hintY);
-    ctx.fillStyle = '#d878a0';
-    ctx.fillText('点击可查看详细战斗数据', W/2, hintY);
-  }
+  drawUIText('点击可查看详细战斗数据', W/2, LB_CLOSE_BTN.y - LB_CLOSE_BTN.h/2 - 26,
+             'muted', { size: 18 });
 
   drawAppButton(LB_CLOSE_BTN, '关 闭', '#ff8fb0', '#c84870', { fontSize: 24 });
+
+
   if(lbBuffPopup >= 0){
     drawLbBuffPopup();
   }
@@ -833,7 +821,7 @@ function drawLbBuffPopup(){
   if(!entry){ lbBuffPopup = -1; return; }
 
   // 遮罩
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.fillStyle = 'rgba(0,0,0,0.93)';
   ctx.fillRect(0, 0, W, H);
 
   const buffLevels = entry.buffLevels || {};
@@ -860,11 +848,11 @@ function drawLbBuffPopup(){
   const panelW = W - 60;
   const cols = 2;
   const buffRows = Math.max(1, Math.ceil(buffIds.length / cols));
-  const buffRowH = 54;
-  const headerH = 130;
-  const sectionGap = 18;
-  const dmgTitleH = 42;
-  const dmgRowH = 42;
+  const buffRowH = 60;
+  const headerH = 140;
+  const sectionGap = 20;
+  const dmgTitleH = 46;
+  const dmgRowH = 48;
   const dmgRows = Math.max(1, statEntries.length);
   const footerH = 100;
 
@@ -881,45 +869,45 @@ function drawLbBuffPopup(){
 
   // ===== 标题 =====
   ctx.textAlign = 'center';
-  ctx.font = 'bold 26px "Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 30px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = C_TITLE;
-  ctx.fillText('第 ' + entry.wave + ' 波 · 本局详情', W/2, panelY + 52);
+  ctx.fillText('第 ' + entry.wave + ' 波 · 本局详情', W/2, panelY + 58);
 
-  ctx.font = '15px "Microsoft YaHei",sans-serif';
+  ctx.font = '17px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = C_SUB;
   ctx.fillText(
     '共 ' + buffIds.length + ' 种强化 · 总伤害 ' + Math.round(statTotal),
-    W/2, panelY + 82
+    W/2, panelY + 92
   );
 
   // 金色装饰短线
   ctx.strokeStyle = 'rgba(255, 210, 74, 0.7)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(W/2 - 40, panelY + 96);
-  ctx.lineTo(W/2 + 40, panelY + 96);
+  ctx.moveTo(W/2 - 40, panelY + 108);
+  ctx.lineTo(W/2 + 40, panelY + 108);
   ctx.stroke();
 
   // 分隔线
   ctx.strokeStyle = C_LINE;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(panelX + PAD, panelY + 108);
-  ctx.lineTo(panelX + panelW - PAD, panelY + 108);
+  ctx.moveTo(panelX + PAD, panelY + 122);
+  ctx.lineTo(panelX + panelW - PAD, panelY + 122);
   ctx.stroke();
 
   // ===== 强化列表 =====
   let cursorY = panelY + headerH;
 
   ctx.textAlign = 'left';
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 19px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = C_SECTION;
   ctx.fillText('强化选择', panelX + PAD, cursorY - 8);
 
   if(buffIds.length === 0){
-    ctx.font = '15px "Microsoft YaHei",sans-serif';
+    ctx.font = '18px "Microsoft YaHei",sans-serif';
     ctx.fillStyle = C_MUTED;
-    ctx.fillText('暂无强化记录', panelX + PAD, cursorY + 24);
+    ctx.fillText('暂无强化记录', panelX + PAD, cursorY + 28);
   } else {
     const colW = (panelW - PAD * 2) / cols;
     for(let i = 0; i < buffIds.length; i++){
@@ -935,13 +923,13 @@ function drawLbBuffPopup(){
       drawBuffIcon(def.id, cx + 20, cy + buffRowH / 2 - 6, 28, def.color);
 
       ctx.textAlign = 'left';
-      ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = def.color;
-      ctx.fillText(def.name, cx + 42, cy + 18);
+      ctx.fillText(def.name, cx + 46, cy + 22);
 
-      ctx.font = '12px "Microsoft YaHei",sans-serif';
+      ctx.font = '16px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = C_MUTED;
-      ctx.fillText('Lv.' + lv, cx + 42, cy + 36);
+      ctx.fillText('Lv.' + lv, cx + 46, cy + 44);
     }
   }
 
@@ -957,16 +945,16 @@ function drawLbBuffPopup(){
 
   // ===== 伤害分析 =====
   ctx.textAlign = 'left';
-  ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = C_SECTION;
   ctx.fillText('伤害分析', panelX + PAD, cursorY + 16);
 
   cursorY += dmgTitleH - 4;
 
   if(statEntries.length === 0){
-    ctx.font = '15px "Microsoft YaHei",sans-serif';
+    ctx.font = '18px "Microsoft YaHei",sans-serif';
     ctx.fillStyle = C_MUTED;
-    ctx.fillText('暂无伤害数据', panelX + PAD, cursorY + 22);
+    ctx.fillText('暂无伤害数据', panelX + PAD, cursorY + 26);
   } else {
     const nameW = 78;
     const numW = 128;
@@ -985,9 +973,9 @@ function drawLbBuffPopup(){
 
       // 武器名
       ctx.textAlign = 'left';
-      ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = w.color;
-      ctx.fillText(w.name, panelX + PAD, cy + 24);
+      ctx.fillText(w.name, panelX + PAD, cy + 26);
 
       // 进度条底（深色，在深蓝面板上更沉）
       const barY = cy + 14;
@@ -1003,31 +991,19 @@ function drawLbBuffPopup(){
 
       // 数字（近白）
       ctx.textAlign = 'right';
-      ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
       ctx.fillStyle = C_NUM;
-      ctx.fillText(Math.round(dmg) + ' (' + pct + '%)', numRightX, cy + 24);
+      ctx.fillText(Math.round(dmg) + ' (' + pct + '%)', numRightX, cy + 26);
     }
   }
 
   // ===== 关闭按钮 =====
-  const btnW = 200, btnH = 54;
+  const btnW = 220, btnH = 62;
   const btnX = W / 2 - btnW / 2;
-  const btnY = panelY + panelH - footerH + 22;
-  rr(btnX, btnY, btnW, btnH, 26);
-  const btnGrd = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-  btnGrd.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
-  btnGrd.addColorStop(1, 'rgba(255, 230, 240, 0.98)');
-  ctx.fillStyle = btnGrd;
-  ctx.fill();
-  ctx.strokeStyle = '#ff8fb0';
-  ctx.lineWidth = 3;
-  rr(btnX, btnY, btnW, btnH, 26);
-  ctx.stroke();
-  ctx.fillStyle = '#c84870';
-  ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('关 闭', W / 2, btnY + 35);
+  const btnY = panelY + panelH - footerH + 20;
+  const btn   = { x: W / 2, y: btnY + btnH / 2, w: btnW, h: btnH };
+
+  drawAppButton(btn, '关 闭', '#ff8fb0', '#c84870', { fontSize: 26 });
 
   lbPopupCloseRect = { x: btnX, y: btnY, w: btnW, h: btnH };
 }
@@ -2651,6 +2627,9 @@ let groundDecorations = [];
 
 // ============ 猫小弟 ============
 let catBros = [];             // 所有猫小弟
+let playerMoveSpeed = 0;      // 主角当前帧速度（px/s），用于猫小弟跟随判定
+let playerPrevX = 0;
+let playerPrevY = 0;
 let catBroSpawnCount = 0;     // 已经触发过几次
 let catBroSelectedSkills = [];
 let catBroCards = [];
@@ -2862,6 +2841,9 @@ function reset(){
   nextEnemyId = 1;
   catBros = [];
   catBroSpawnCount = 0;
+  playerMoveSpeed = 0;
+  playerPrevX = player.x;
+  playerPrevY = player.y;
   catBroSelectedSkills = [];
   catBroCards = [];
   catBroTakenSkills = [];
@@ -4069,6 +4051,9 @@ function update(dt){
        state === 'stageclear' || state === 'tutorial' || state === 'catbro'){
       gameTime += dt;
     }
+    if(state === 'boot'){
+      bootAnimT += dt;
+    }
 
     if(state === 'menu' || state === 'catselect'){
       menuTime += dt;
@@ -4154,6 +4139,7 @@ function update(dt){
     }
   }
 
+  // ★ 主角位置更新（这两行不见了）
   player.x = clamp(player.x + mx * player.speed * dt, player.r, WORLD.w - player.r);
   player.y = clamp(player.y + my * player.speed * dt, player.r, WORLD.h - player.r);
   player.invuln = Math.max(0, player.invuln - dt);
@@ -4534,8 +4520,9 @@ function update(dt){
       if(currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE){
         waveInStage++;
       }
+      // ★ 猫小弟暂时不加入战斗（调整完毕后删掉下面的 return 即可恢复）
       // 无尽模式第 1 波、第 2 波前各触发一次猫小弟选择
-      if(currentStage === 0 && wave <= 2 && catBroSpawnCount < wave){
+      if(false && currentStage === 0 && wave <= 2 && catBroSpawnCount < wave){
         catBroSpawnCount++;
         catBroSelectedSkills = [];
         state = 'catbro';
@@ -4544,6 +4531,130 @@ function update(dt){
       }
       startWave(wave);
     }
+  }
+}
+
+// ================= 统一 UI 文字体系 =================
+// 五色体系：
+//   title   主标题（金）
+//   body    正文（纯白）
+//   accent  高亮（亮金）
+//   danger  危险（橙红）
+//   success 成功（亮绿）
+//   muted   次要信息（淡青灰）
+const UI_COLORS = {
+  title:   '#ffd24a',
+  body:    '#ffffff',
+  accent:  '#ffe080',
+  danger:  '#ff6b4a',
+  success: '#7fe0a0',
+  muted:   'rgba(180, 210, 230, 0.85)',
+  stroke:  'rgba(10, 20, 35, 0.92)'
+};
+
+// 主标题金色渐变（三色）
+const UI_GRADIENT_GOLD = ['#fff8d0', '#ffd24a', '#ffa820'];
+
+// 统一 UI 文字绘制
+//   text      要画的文本
+//   x, y      位置（默认基线居中）
+//   colorKey  UI_COLORS 的 key
+//   opts: {
+//     size        字号（默认 24）
+//     align       'left' | 'center' | 'right'（默认 center）
+//     bold        是否加粗（默认 true）
+//     strokeWidth 描边厚度（默认 字号 × 0.14，最小 3）
+//     glow        是否外发光
+//     glowColor   发光颜色（默认用填充色）
+//     glowSize    发光半径（默认 16）
+//     gradient    [c0, c1, c2] 三色渐变，给定时覆盖 colorKey
+//     alpha       整体透明度
+//   }
+function drawUIText(text, x, y, colorKey, opts){
+  opts = opts || {};
+  const size  = opts.size || 24;
+  const color = UI_COLORS[colorKey] || UI_COLORS.body;
+  const align = opts.align || 'center';
+  const bold  = opts.bold !== false;
+  const font  = (bold ? 'bold ' : '') + size + 'px "Microsoft YaHei",sans-serif';
+  const sw    = opts.strokeWidth || Math.max(3, size * 0.14);
+  const scale = opts.scale || 1;
+
+  ctx.save();
+
+  // ★ 用 translate 移动原点，这样缩放以 (x, y) 为中心
+  ctx.translate(x, y);
+  if(scale !== 1) ctx.scale(scale, scale);
+
+  ctx.textAlign = align;
+  ctx.font = font;
+  if(opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
+
+  // 1. 外发光（先画，被后面的描边和填充略微覆盖，正好形成柔光边）
+  if(opts.glow){
+    ctx.save();
+    ctx.shadowColor = opts.glowColor || color;
+    ctx.shadowBlur  = opts.glowSize  || 16;
+    ctx.lineWidth   = sw;
+    ctx.lineJoin    = 'round';
+    ctx.strokeStyle = UI_COLORS.stroke;
+    ctx.strokeText(text, 0, 0);
+    ctx.restore();
+  }
+
+  // 2. 统一描边
+  ctx.lineWidth   = sw;
+  ctx.lineJoin    = 'round';
+  ctx.strokeStyle = UI_COLORS.stroke;
+  ctx.strokeText(text, 0, 0);
+
+  // 3. 填充
+  if(opts.gradient){
+    const grd = ctx.createLinearGradient(0, -size * 0.75, 0, size * 0.28);
+    grd.addColorStop(0,   opts.gradient[0]);
+    grd.addColorStop(0.5, opts.gradient[1]);
+    grd.addColorStop(1,   opts.gradient[2]);
+    ctx.fillStyle = grd;
+  } else {
+    ctx.fillStyle = color;
+  }
+  ctx.fillText(text, 0, 0);
+
+  ctx.restore();
+}
+
+// 多段富文本绘制（居中对齐）
+//   parts: [{ text, colorKey, gold }]
+//     colorKey  UI_COLORS 的 key，默认 'body'
+//     gold      true 时加金色外发光（配合 colorKey: 'accent' 用）
+//   opts: { size }
+function drawUITextRich(parts, x, y, opts){
+  opts = opts || {};
+  const size = opts.size || 20;
+  const font = 'bold ' + size + 'px "Microsoft YaHei",sans-serif';
+
+  // 预计算总宽
+  ctx.save();
+  ctx.font = font;
+  let totalW = 0;
+  for(const p of parts) totalW += ctx.measureText(p.text).width;
+  ctx.restore();
+
+  // 从左往右逐段绘制
+  let cx = x - totalW / 2;
+  for(const p of parts){
+    const isGold = p.gold === true;
+    drawUIText(p.text, cx, y, p.colorKey || 'body', {
+      size: size,
+      align: 'left',
+      glow: isGold,
+      glowColor: 'rgba(255, 210, 74, 0.75)',
+      glowSize: 14
+    });
+    ctx.save();
+    ctx.font = font;
+    cx += ctx.measureText(p.text).width;
+    ctx.restore();
   }
 }
 
@@ -4659,8 +4770,32 @@ function drawGround(){
   // ★ 优先用 bg_battle.png 铺满整个 WORLD
   const battleSpr = SPRITES.bg_battle;
   if(battleSpr && battleSpr.loaded && battleSpr.img){
-    ctx.drawImage(battleSpr.img, 0, 0, WORLD.w, WORLD.h);
-    // 边缘轻微描边，保留原本的氛围
+    const bg = battleSpr.img;
+
+    // 1. 背景铺满
+    ctx.drawImage(bg, 0, 0, WORLD.w, WORLD.h);
+
+    // ===== 可调参数 =====
+    // FADE_COLOR：淡化色，取"背景主色的浅化版"或中性浅色
+    //   - 草地/沙滩场景 → 浅灰绿 '235, 242, 238'（当前值）
+    //   - 深蓝/夜景场景 → 换 '30, 50, 70'（用深色淡化，让中间变暗）
+    // MID_ALPHA：中间淡化强度，0.5 轻微 / 0.7 明显 / 0.85 几乎盖住
+    // SIDE_EDGE：两侧"透明带"宽度占比，越小两侧越显眼
+    const FADE_COLOR = '235, 242, 238';
+    const MID_ALPHA  = 0.62;
+    const SIDE_EDGE  = 0.20;
+
+    // 2. 中间淡化遮罩：左右两侧透明 → 中间不透明
+    const grd = ctx.createLinearGradient(0, 0, WORLD.w, 0);
+    grd.addColorStop(0,              'rgba(' + FADE_COLOR + ', 0)');
+    grd.addColorStop(SIDE_EDGE,      'rgba(' + FADE_COLOR + ', ' + MID_ALPHA + ')');
+    grd.addColorStop(0.5,            'rgba(' + FADE_COLOR + ', ' + MID_ALPHA + ')');
+    grd.addColorStop(1 - SIDE_EDGE,  'rgba(' + FADE_COLOR + ', ' + MID_ALPHA + ')');
+    grd.addColorStop(1,              'rgba(' + FADE_COLOR + ', 0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+
+    // 3. 边缘描边
     ctx.strokeStyle = 'rgba(120,200,140,0.22)';
     ctx.lineWidth = 4;
     ctx.strokeRect(0, 0, WORLD.w, WORLD.h);
@@ -5080,6 +5215,45 @@ function drawEnemy(e){
   }
 }
 
+// ===== 猫小弟队形槽位计算 =====
+// 所有槽位分布在主角背后（与 facing 相反方向）的扇形区域内
+function computeCatBroTarget(idx, total, px, py, facing){
+  const backAngle = facing + Math.PI;   // 背后方向
+
+  const MAX_HALF = Math.PI / 3;         // 扇形半角 60° → 总 120°
+  const BASE_DIST = 130;                // 基准距离（离主角多远）
+
+  let angleOffset = 0;
+
+  if(total === 1){
+    angleOffset = 0;                    // 正后方
+  } else if(total === 2){
+    // 两个：左后 + 右后，严格对称
+    angleOffset = (idx === 0 ? -1 : 1) * MAX_HALF * 0.75;
+  } else {
+    // 3 个及以上：通用对称分配
+    if(total % 2 === 1){
+      if(idx === 0){
+        angleOffset = 0;                // 中间一个
+      } else {
+        const k = Math.ceil(idx / 2);
+        const s = (idx % 2 === 1) ? 1 : -1;
+        angleOffset = s * (MAX_HALF * 2 / (total + 1)) * k;
+      }
+    } else {
+      const k = Math.floor(idx / 2) + 1;
+      const s = (idx % 2 === 0) ? 1 : -1;
+      angleOffset = s * (MAX_HALF * 2 / (total + 1)) * k;
+    }
+  }
+
+  const a = backAngle + angleOffset;
+  return {
+    x: px + Math.cos(a) * BASE_DIST,
+    y: py + Math.sin(a) * BASE_DIST
+  };
+}
+
 // ================= 猫小弟 =================
 function initCatBro(skills){
   const ang0 = player.facing + Math.PI + catBros.length * 0.9;
@@ -5129,16 +5303,30 @@ function updateOneCatBro(catBro, dt){
   if(catBro.speakCd > 0) catBro.speakCd -= dt;
   if(catBro.bubble.life > 0) catBro.bubble.life -= dt;
 
-  catBro.wanderTimer -= dt;
-  if(catBro.wanderTimer <= 0){
-    catBro.wanderTimer = rand(1.2, 2.5);
-    catBro.wanderAngle = player.facing + Math.PI + rand(-1.2, 1.2);
-    catBro.wanderDist  = rand(200, 300);
+  // ===== 槽位跟随 =====
+  const total = catBros.length;
+  const idx = catBros.indexOf(catBro);
+  const target = computeCatBroTarget(idx, total, player.x, player.y, player.facing);
+
+  const dx = target.x - catBro.x;
+  const dy = target.y - catBro.y;
+  const dist = Math.hypot(dx, dy);
+
+  // 主角在移动 → 追得快；主角停下 → 归位慢一点
+  const baseSpeed = (playerMoveSpeed > 30) ? 360 : 200;
+
+  // 到位判定：距离小于 3px 就吸附，避免抖动
+  if(dist > 3){
+    const step = baseSpeed * dt;
+    if(step >= dist){
+      catBro.x = target.x;
+      catBro.y = target.y;
+    } else {
+      catBro.x += (dx / dist) * step;
+      catBro.y += (dy / dist) * step;
+    }
   }
-  const tx = player.x + Math.cos(catBro.wanderAngle) * catBro.wanderDist;
-  const ty = player.y + Math.sin(catBro.wanderAngle) * catBro.wanderDist;
-  catBro.x += (tx - catBro.x) * Math.min(1, dt * 4);
-  catBro.y += (ty - catBro.y) * Math.min(1, dt * 4);
+
   catBro.facing = player.facing;
 
   if(catBro.skills.indexOf('orb') >= 0){
@@ -5432,7 +5620,7 @@ function drawCatBroSelect(){
 
     const icx = x + CW / 2;
     const icy = y + 70;
-    drawCircleIconBack(icx, icy, 36, '#f4fbff', 'rgba(120, 180, 220, 0.9)');
+    UI.drawFrame(ctx, icx - 36, icy - 36, 72, 72, 'skill_frame');
     drawBuffIcon(info.icon, icx, icy, 48, info.color);
 
     ctx.textAlign = 'center';
@@ -5651,17 +5839,7 @@ function drawSkillIcons(){
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
 
-    // 倒计时数字
-    const label = remain.toFixed(1);
-    ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.strokeText(label, cx, cy + R + 14);
-    ctx.fillStyle = '#ffe080';
-    ctx.fillText(label, cx, cy + R + 14);
-    ctx.textBaseline = 'alphabetic';
+    drawUIText(remain.toFixed(1), cx, cy + R + 18, 'accent', { size: 22, strokeWidth: 5 });
 
     ctx.restore();
   }
@@ -5717,17 +5895,7 @@ function drawSkillIcons(){
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
 
-    // 倒计时数字
-    const label2 = remain.toFixed(1);
-    ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.strokeText(label2, cx, cy + R + 14);
-    ctx.fillStyle = '#ffcf8a';
-    ctx.fillText(label2, cx, cy + R + 14);
-    ctx.textBaseline = 'alphabetic';
+    drawUIText(remain.toFixed(1), cx, cy + R + 18, 'accent', { size: 22, strokeWidth: 5 });
 
     ctx.restore();
   }
@@ -5930,40 +6098,26 @@ function drawHelpQuickBtn(){
   ctx.stroke();
   ctx.restore();
 
-  // ===== 中间问号 =====
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 42px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(20, 40, 70, 0.9)';
-  ctx.strokeText('?', cx, cy + 2);
-  ctx.fillText('?', cx, cy + 2);
-  ctx.textBaseline = 'alphabetic';
+  // ===== 中间齿轮图标（素材） =====
+  const iconSz = R * 1.35;
+  UI.drawIcon(ctx, 'icon_settings', cx - iconSz/2, cy - iconSz/2, iconSz);
 
   // ===== 下方文字 "玩法说明" =====
   const labelText = '玩法说明';
-  const labelY = cy + R + 22;
+  const labelY = cy + R + 26;
 
-  ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+  ctx.save();
+  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
   const tw = ctx.measureText(labelText).width;
-
-  // 深色底框（保证可读）
-  rr(cx - tw/2 - 10, labelY - 14, tw + 20, 22, 8);
+  rr(cx - tw/2 - 12, labelY - 15, tw + 24, 26, 8);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
   ctx.fill();
   ctx.strokeStyle = '#7fb8ff';
   ctx.lineWidth = 1.5;
-  rr(cx - tw/2 - 10, labelY - 14, tw + 20, 22, 8);
   ctx.stroke();
+  ctx.restore();
 
-  // 文字带描边
-  ctx.textAlign = 'center';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
-  ctx.strokeText(labelText, cx, labelY + 3);
-  ctx.fillStyle = '#c8e0ff';
-  ctx.fillText(labelText, cx, labelY + 3);
+  drawUIText(labelText, cx, labelY + 5, 'body', { size: 18, glow: true, glowColor: 'rgba(120, 180, 255, 0.7)' });
 }
 
 function drawAutoCastBtn(){
@@ -6058,20 +6212,19 @@ function drawAutoCastBtn(){
   ctx.fillText(textOn ? '开' : '关', knobX, b.y + 1);
   ctx.textBaseline = 'alphabetic';
 
-  // ===== 顶部标签 =====
   const labelText = '自动释放技能';
-  ctx.font = 'bold 12px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
   const tw = ctx.measureText(labelText).width;
   const labelY = b.y - H2/2 - 12;
-  rr(b.x - tw/2 - 9, labelY - 9, tw + 18, 18, 6);
+  rr(b.x - tw/2 - 11, labelY - 11, tw + 22, 24, 8);
   ctx.fillStyle = 'rgba(0,0,0,0.78)';
   ctx.fill();
   ctx.strokeStyle = autoCast ? '#4ade80' : 'rgba(150,160,160,0.7)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.fillStyle = autoCast ? '#b8f5d0' : '#d0d8d8';
-  ctx.fillText(labelText, b.x, labelY + 4);
+  ctx.restore();
+  drawUIText(labelText, b.x, labelY + 6, autoCast ? 'success' : 'muted', { size: 16 });
 
   ctx.restore();
 }
@@ -6103,11 +6256,7 @@ function drawJoystick(j, base, color, label){
   ctx.beginPath(); ctx.arc(bx, by, 6, 0, TAU); ctx.stroke();
 
   if(label){
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = color;
-    ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(label, bx, by + JOY_R + 26);
+    drawUIText(label, bx, by + JOY_R + 28, 'muted', { size: 18, alpha: 0.55 });
   }
   ctx.restore();
 }
@@ -6126,54 +6275,9 @@ function drawPauseButton(){
   ctx.fill();
   ctx.restore();
 
-  // 圆底渐变
-  const grd = ctx.createRadialGradient(x - r*0.35, y - r*0.35, r*0.1, x, y, r);
-  grd.addColorStop(0, '#3a6a52');
-  grd.addColorStop(0.6, '#1e2e26');
-  grd.addColorStop(1, '#0e1814');
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fillStyle = grd;
-  ctx.fill();
-
-  // 内环高光
-  ctx.strokeStyle = 'rgba(180, 240, 210, 0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(x, y, r - 4, 0, TAU);
-  ctx.stroke();
-
-  // 外边框
-  ctx.strokeStyle = '#7fe0a0';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.stroke();
-
-  // 外圈细白边
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(x, y, r + 3, 0, TAU);
-  ctx.stroke();
-
-  // 顶部高光弧
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, r - 5, Math.PI * 1.15, Math.PI * 1.85);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-  ctx.restore();
-
-  // 双竖线（暂停图标）
-  ctx.fillStyle = '#d8f5e0';
-  const bw = r * 0.28;
-  const bh = r * 0.9;
-  const gap = r * 0.16;
-  ctx.fillRect(x - gap - bw, y - bh/2, bw, bh);
-  ctx.fillRect(x + gap,      y - bh/2, bw, bh);
+  // ★ 图标素材
+  const iconSize = r * 2 + 8;
+  UI.drawIcon(ctx, 'icon_pause', x - iconSize / 2, y - iconSize / 2, iconSize);
 }
 
 function drawMissileButton(){
@@ -6326,32 +6430,21 @@ function drawMissileButton(){
   ctx.strokeStyle = '#ffd080';
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(nx, ny, 17, 0, TAU); ctx.stroke();
-  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-  ctx.strokeText(String(charges), nx, ny + 1);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(String(charges), nx, ny + 1);
-  ctx.textBaseline = 'alphabetic';
+  drawUIText(String(charges), nx, ny + 1, 'body', { size: 24, strokeWidth: 5 });
 
   // 底部文字
   const label = '导弹 ' + charges + '/' + maxCharges;
-  ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
   const tw = ctx.measureText(label).width;
-  rr(b.x - tw/2 - 9, b.y + R + 6, tw + 18, 22, 8);
+  rr(b.x - tw/2 - 9, b.y + R + 6, tw + 18, 26, 8);
   ctx.fillStyle = 'rgba(0,0,0,0.78)';
   ctx.fill();
   ctx.strokeStyle = fullReady ? '#ffb860' : 'rgba(150,100,60,0.8)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-  ctx.strokeText(label, b.x, b.y + R + 22);
-  ctx.fillStyle = fullReady ? '#ffd070' : '#c8b8a8';
-  ctx.fillText(label, b.x, b.y + R + 22);
+  ctx.restore();
+  drawUIText(label, b.x, b.y + R + 24, fullReady ? 'accent' : 'muted', { size: 18 });
 
   ctx.restore();
 }
@@ -6437,32 +6530,20 @@ function drawLaserButton(){
   }
   ctx.restore();
 
-  // 文字：冷却剩余 / 就绪
   if(!active){
     const label = ready ? '就绪' : (laserCooldown.toFixed(1) + 's');
-    ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.strokeText(label, b.x, b.y + R + 18);
-    ctx.fillStyle = ready ? mainColor : '#a0b0b8';
-    ctx.fillText(label, b.x, b.y + R + 18);
-    ctx.textBaseline = 'alphabetic';
+    drawUIText(label, b.x, b.y + R + 22, ready ? 'accent' : 'muted', { size: 20 });
   }
 
   const label = gold ? '金色激光 (E)' : '激光 (E)';
-  ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
   const tw = ctx.measureText(label).width;
-  rr(b.x - tw/2 - 9, b.y + R + 28, tw + 18, 22, 8);
+  rr(b.x - tw/2 - 9, b.y + R + 34, tw + 18, 26, 8);
   ctx.fillStyle = 'rgba(0,0,0,0.72)';
   ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-  ctx.strokeText(label, b.x, b.y + R + 44);
-  ctx.fillStyle = ready ? (gold ? '#fff5c0' : '#e8ffff') : '#c0c8c4';
-  ctx.fillText(label, b.x, b.y + R + 44);
+  ctx.restore();
+  drawUIText(label, b.x, b.y + R + 52, ready ? 'body' : 'muted', { size: 18 });
 
   ctx.restore();
 }
@@ -6472,21 +6553,22 @@ function drawBuffTags(){
   const ids = Object.keys(player.buffLevels).filter(k => player.buffLevels[k] > 0);
   if(ids.length === 0) return;
   let x = 96, y = 100;
-  ctx.textAlign = 'left';
-ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
   for(const id of ids){
     const def = BUFFS.find(b => b.id === id);
     if(!def) continue;
     const lv = player.buffLevels[id];
     const label = def.name + ' ×' + lv;
     const tw = ctx.measureText(label).width;
-    const w = tw + 46;
-    if(x + w > 420){ x = 96; y += 30; }
-    ctx.fillStyle = 'rgba(0,0,0,.45)';
-    rr(x, y - 15, w, 26, 8); ctx.fill();
-    drawBuffIcon(def.id, x + 16, y - 2, 22, def.color);
-    ctx.fillStyle = def.color;
-    ctx.fillText(label, x + 32, y + 4);
+    const w = tw + 52;
+    if(x + w > 440){ x = 96; y += 32; }
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    rr(x, y - 16, w, 28, 8); ctx.fill();
+    drawBuffIcon(def.id, x + 18, y - 2, 24, def.color);
+    drawUIText(label, x + 38, y + 5, 'body', {
+      size: 16, align: 'left', strokeWidth: 3,
+      glow: true, glowColor: def.color, glowSize: 8
+    });
     x += w + 8;
   }
 }
@@ -6503,7 +6585,6 @@ function drawActiveItems(){
 
   const CW = 224, CH = 58, GAP = 8;
   let y = 320;
-  ctx.textAlign = 'left';
 
   for(const it of items){
     const x = W - CW - 12;
@@ -6517,25 +6598,25 @@ function drawActiveItems(){
     ctx.stroke();
     ctx.globalAlpha = 1;
 
- if(it.iconId){
+    if(it.iconId){
       drawBuffIcon(it.iconId, x + 28, y + CH/2 - 2, 30, it.color);
     }
 
-    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = it.color;
-    ctx.textAlign = 'left';
-    ctx.fillText(it.label, x + 52, y + 24);
+    drawUIText(it.label, x + 52, y + 22, 'body', {
+      size: 18, align: 'left', strokeWidth: 4,
+      glow: true, glowColor: it.color, glowSize: 8
+    });
 
-    ctx.font = '13px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = 'rgba(200,220,210,.75)';
-    ctx.fillText(it.desc, x + 52, y + 42);
+    drawUIText(it.desc, x + 52, y + 44, 'muted', {
+      size: 16, align: 'left', strokeWidth: 3
+    });
 
     if(it.time !== null){
-      ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-      ctx.fillStyle = it.color;
-      ctx.textAlign = 'right';
-      ctx.fillText(it.time.toFixed(1) + 's', x + CW - 10, y + 24);
+      drawUIText(it.time.toFixed(1) + 's', x + CW - 10, y + 22, 'accent', {
+        size: 18, align: 'right'
+      });
 
+      // 进度条
       const barX = x + 10;
       const barW = CW - 20;
       const barY = y + CH - 7;
@@ -6735,19 +6816,10 @@ function drawHeartAt(cx, cy, r, fillRatio){
 }
 
 function drawHealthHearts(startX, centerY){
-  const R = 20;
-  const GAP = 10;
-  const slotW = R * 2 + GAP;
-
-  const totalHearts = Math.ceil(player.maxHp / 4);  // 每颗心 4 单位
-
-  for(let i = 0; i < totalHearts; i++){
-    const cx = startX + i * slotW + R;
-    const cy = centerY;
-    // 这颗心还剩多少单位（0~4）
-    const unitsInHeart = Math.max(0, Math.min(4, player.hp - i * 4));
-    drawHeartAt(cx, cy, R, unitsInHeart / 4);
-  }
+  const barW = 200;
+  const barH = 22;
+  const ratio = Math.max(0, Math.min(1, player.hp / player.maxHp));
+  UI.drawBar(ctx, startX, centerY - barH / 2, barW, barH, ratio, 'bar_fill_green');
 }
 
 // 关键词高亮表：武器/技能名 → 颜色
@@ -6946,38 +7018,21 @@ function drawHUD(){
   const titleText = isTutorial
     ? ('教学 · 第 ' + Math.max(1, waveInStage) + ' 波')
     : ('第 ' + Math.max(1, wave) + ' 波');
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  ctx.strokeText(titleText, infoCx, line1Y);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(titleText, infoCx, line1Y);
+    drawUIText(titleText, infoCx, line1Y, 'body', { size: 26, strokeWidth: 5 });
 
-  // 第二行：波次进度
-  let subText;
-  if(isTutorial){
-    subText = '第 ' + Math.max(1, waveInStage) + ' / ' + STAGE_WAVES + ' 波';
-  } else {
-    const remainingThisWave = enemies.length + spawnQueue.length;
-    const killedThisWave = Math.max(0, waveTotal - remainingThisWave);
-    subText = '本波 ' + killedThisWave + ' / ' + waveTotal;
-  }
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  ctx.strokeText(subText, infoCx, line2Y);
-  ctx.fillStyle = '#8ef0a8';
-  ctx.fillText(subText, infoCx, line2Y);
-
-  // 第三行：剩余敌人
-  const remainTotal = enemies.length + spawnQueue.length;
-  const remainText = '剩余 ' + remainTotal;
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  ctx.strokeText(remainText, infoCx, line3Y);
-  ctx.fillStyle = '#ff9a9a';
-  ctx.fillText(remainText, infoCx, line3Y);
+    let subText;
+    if(isTutorial){
+      subText = '第 ' + Math.max(1, waveInStage) + ' / ' + STAGE_WAVES + ' 波';
+    } else {
+      const remainingThisWave = enemies.length + spawnQueue.length;
+      const killedThisWave = Math.max(0, waveTotal - remainingThisWave);
+      subText = '本波 ' + killedThisWave + ' / ' + waveTotal;
+    }
+    drawUIText(subText, infoCx, line2Y, 'success', { size: 20, strokeWidth: 4 });
+  
+    const remainTotal = enemies.length + spawnQueue.length;
+    const remainText = '剩余 ' + remainTotal;
+    drawUIText(remainText, infoCx, line3Y, 'danger', { size: 20, strokeWidth: 4 });
 
   drawBuffTags();
   drawActiveItems();
@@ -7253,44 +7308,14 @@ function drawCuteVignette(){
 
 // ---------- 可爱标题 ----------
 function drawCuteTitle(cx, cy){
-  const txt = '猫咪大作战';
   const pulse = 0.5 + 0.5 * Math.sin(menuTime * 1.6);
-
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 72px "Microsoft YaHei",sans-serif';
-
-  ctx.save();
-  ctx.shadowColor = 'rgba(255, 255, 255, 0.95)';
-  ctx.shadowBlur = 24 + pulse * 18;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(txt, cx, cy);
-  ctx.restore();
-
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = '#ffffff';
-  ctx.strokeText(txt, cx, cy);
-
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = '#c85880';
-  ctx.strokeText(txt, cx, cy);
-
-  const fillGrd = ctx.createLinearGradient(cx, cy - 45, cx, cy + 20);
-  fillGrd.addColorStop(0,    '#fff0f6');
-  fillGrd.addColorStop(0.45, '#ffb8d0');
-  fillGrd.addColorStop(1,    '#ff7aa0');
-  ctx.fillStyle = fillGrd;
-  ctx.fillText(txt, cx, cy);
-
-  const sweepP = (menuTime * 0.5) % 1.6;
-  if(sweepP < 1){
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(cx - 260 + sweepP * 520, cy - 70, 60, 100);
-    ctx.clip();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillText(txt, cx, cy);
-    ctx.restore();
-  }
+  drawUIText('猫咪大作战', cx, cy, 'title', {
+    size: 84,
+    gradient: UI_GRADIENT_GOLD,
+    glow: true,
+    glowColor: 'rgba(255, 210, 74, ' + (0.8 + pulse * 0.15) + ')',
+    glowSize: 24 + pulse * 14
+  });
 }
 
 // ---------- 小爱心 / 蝴蝶结 ----------
@@ -7499,20 +7524,13 @@ function drawAppBackground(){
     return;
   }
 
-  // ===== 兜底：原来的可爱背景 =====
+  // ===== 兜底：简单渐变（已去掉云/太阳/山丘/花瓣/光晕） =====
   const skyGrd = ctx.createLinearGradient(0, 0, 0, H);
-  skyGrd.addColorStop(0,    '#ffe8f2');
-  skyGrd.addColorStop(0.35, '#fff5e0');
-  skyGrd.addColorStop(0.65, '#e0f5ff');
-  skyGrd.addColorStop(1,    '#d0f5e0');
+  skyGrd.addColorStop(0,   '#ffe8f2');
+  skyGrd.addColorStop(0.5, '#fff5e0');
+  skyGrd.addColorStop(1,   '#d0f5e0');
   ctx.fillStyle = skyGrd;
   ctx.fillRect(0, 0, W, H);
-
-  drawCuteClouds();
-  drawCuteSun();
-  drawCuteHills();
-  drawCutePetals();
-  drawCuteVignette();
 }
 
 // 暖棕半透明遮罩：给需要看穿游戏世界的界面用
@@ -7544,159 +7562,226 @@ function drawAppButton(b, text, borderColor, textColor, opts){
 // 统一可爱标题
 function drawAppTitle(text, cx, cy, size){
   size = size || 42;
-  const pulse = 0.5 + 0.5 * Math.sin(menuTime * 1.6);
 
-  ctx.textAlign = 'center';
-  ctx.font = 'bold ' + size + 'px "Microsoft YaHei",sans-serif';
+  const img = UI.assets['banner_main'];
+  if(!img){
+    // 兜底：金色文字
+    drawUIText(text, cx, cy, 'title', {
+      size: size,
+      gradient: UI_GRADIENT_GOLD,
+      glow: true,
+      glowColor: 'rgba(255, 210, 74, 0.75)',
+      glowSize: 18
+    });
+    return;
+  }
 
+  // ===== 可调参数 =====
+  const H_PER_SIZE = 3.6;   // 横幅高 = 字号 × 此值（3.2 偏紧 / 4.0 偏松）
+  const SIDE_PAD   = 0.55;  // 左右各留 文字宽 × 此值 作为边距
+
+  // 量文字宽
   ctx.save();
-  ctx.shadowColor = 'rgba(255, 255, 255, 0.95)';
-  ctx.shadowBlur = 20 + pulse * 12;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, cx, cy);
+  ctx.font = 'bold ' + size + 'px "Microsoft YaHei",sans-serif';
+  let textW = ctx.measureText(text).width;
   ctx.restore();
 
-  ctx.lineWidth = Math.max(6, size * 0.12);
-  ctx.strokeStyle = '#ffffff';
-  ctx.strokeText(text, cx, cy);
+  let finalSize = size;
+  let bannerW   = textW * (1 + SIDE_PAD * 2);
+  let bannerH   = size * H_PER_SIZE;
 
-  ctx.lineWidth = Math.max(3, size * 0.07);
-  ctx.strokeStyle = '#c85880';
-  ctx.strokeText(text, cx, cy);
+  // 超屏 → 按比例缩字号 + 缩横幅
+  const maxW = W - 40;
+  if(bannerW > maxW){
+    const k = maxW / bannerW;
+    finalSize = size * k;
+    bannerW   = maxW;
+    bannerH   = finalSize * H_PER_SIZE;
+  }
 
-  const fillGrd = ctx.createLinearGradient(cx, cy - size * 0.6, cx, cy + size * 0.3);
-  fillGrd.addColorStop(0,    '#fff0f6');
-  fillGrd.addColorStop(0.45, '#ffb8d0');
-  fillGrd.addColorStop(1,    '#ff7aa0');
-  ctx.fillStyle = fillGrd;
-  ctx.fillText(text, cx, cy);
+  // ★ 横向拉伸绘制，纵向高度按字号算
+  ctx.drawImage(
+    img,
+    cx - bannerW / 2,
+    cy - bannerH / 2,
+    bannerW,
+    bannerH
+  );
+
+  // 文字居中
+  drawUIText(text, cx, cy, 'title', {
+    size: finalSize,
+    gradient: UI_GRADIENT_GOLD,
+    glow: true,
+    glowColor: 'rgba(255, 210, 74, 0.7)',
+    glowSize: 16
+  });
+}
+
+// ================= 主菜单角色 =================
+// 主菜单单角色绘制
+//   sprKey  SPRITES 的 key；'cat' 表示当前选中的猫
+//   cx      水平中心
+//   footY   脚部所在的 Y（三排角色用不同的 footY 制造纵深）
+//   size    绘制尺寸
+//   phase   动画相位偏移，避免所有角色同频
+//   opts: { breath, bob }  呼吸幅度 / 上下浮动幅度
+function drawMenuChar(sprKey, cx, footY, size, phase, opts){
+  opts = opts || {};
+  const breathAmp = opts.breath !== undefined ? opts.breath : 0.015;   // 默认弱化
+  const bobAmp    = opts.bob    !== undefined ? opts.bob    : 2.2;
+
+  const breath = 1 + Math.sin(menuTime * 1.6 + phase) * breathAmp;
+  const bob    = Math.sin(menuTime * 2.0 + phase) * bobAmp;
+
+  const cy = footY - size * 0.32;   // 脚部对齐 footY
+
+  // 脚下阴影
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.24)';
+  ctx.beginPath();
+  ctx.ellipse(cx, footY + 2, size * 0.28, size * 0.055, 0, 0, TAU);
+  ctx.fill();
+
+  // 取精灵
+  let spr;
+  if(sprKey === 'cat'){
+    spr = getCurrentCatSprite();
+  } else {
+    spr = SPRITES[sprKey];
+  }
+  if(!spr || !spr.loaded || !spr.img) return;
+
+  ctx.save();
+  ctx.translate(cx, cy + bob);
+  ctx.scale(breath, breath);
+  ctx.drawImage(spr.img, -size/2, -size/2, size, size);
+  ctx.restore();
+}
+
+function drawMenuCharacters(){
+  // 三排脚部基准线（越大越靠前、越大越靠下）
+  const gBack  = 480;
+  const gMid   = 610;
+  const gFront = 730;
+
+  // ===================== 后排（先画） =====================
+  drawMenuChar('cat',            W*0.20, gBack,      250, 4.5, { breath: 0.02, bob: 2.8 });
+  drawMenuChar('enemy_skeleton', W*0.60, gBack,       200, 0.9);
+  drawMenuChar('enemy_spitter',  W*0.70, gBack,        200, 1.5);
+  drawMenuChar('enemy_elite',    W*0.92, gBack - 15,  300, 2.1);
+
+  // ===================== 中排 =====================
+  drawMenuChar('catbro',         W*0.13, gMid - 20, 200, 3.9);   // 猫小弟 1（猫咪左前方）
+  drawMenuChar('enemy_brute',    W*0.70, gMid, 200, 2.7);
+  drawMenuChar('enemy_armored',  W*0.90, gMid, 200, 3.3);
+
+  // ===================== 前排（最后画，覆盖后面的） =====================
+  drawMenuChar('catbro2',        W*0.10, gFront, 180, 0.3);   // 猫小弟 2（猫咪左后方）
+  drawMenuChar('enemy_zombie',   W*0.76, gFront,      200, 5.1);
+  drawMenuChar('enemy_runner',   W*0.95, gFront - 8,  200, 5.7);
 }
 
 // ================= 主菜单 =================
 function drawMainMenu(){
   drawAppBackground();
-
-  // 标题
   drawCuteTitle(W/2, 118);
+  drawUIText('末世鼠潮 · 猫咪反击战', W/2, 162, 'muted', { size: 22 });
 
-  // 副标题
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText('末世鼠潮 · 猫咪反击战', W/2, 162);
-  ctx.fillStyle = '#d878a0';
-  ctx.fillText('末世鼠潮 · 猫咪反击战', W/2, 162);
+  // 角色（猫 + 怪物）
+  drawMenuCharacters();
 
-  // 海报
-  drawCutePoster();
-
-  // 按钮（粉 / 黄 / 蓝）
+  // 按钮
   drawMenuButton(MENU_START_BTN, '开 始 游 戏', '#ff8fb0', '#c84870', 0);
-drawMenuButton(MENU_LB_BTN,    '历 史 战 绩',  '#ffb84a', '#c87820', 1);  drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明',  '#7fb8ff', '#3878b8', 2);
+  drawMenuButton(MENU_LB_BTN,    '历 史 战 绩', '#ffb84a', '#c87820', 1);
+  drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明', '#7fb8ff', '#3878b8', 2);
 
   // 隐藏操作反馈 toast
   if(menuToast.life > 0){
     const a = Math.min(1, menuToast.life / 0.4);
     ctx.save();
     ctx.globalAlpha = a;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+
     ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
     const tw = ctx.measureText(menuToast.text).width;
     const bx = W/2, by = 200;
+
     rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
-    ctx.fillStyle = 'rgba(20, 40, 30, 0.95)';
+    ctx.fillStyle = 'rgba(10, 20, 35, 0.95)';
     ctx.fill();
-    ctx.strokeStyle = '#7fe0a0';
+    ctx.strokeStyle = UI_COLORS.success;
     ctx.lineWidth = 2;
     rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
     ctx.stroke();
-    ctx.fillStyle = '#c8f5d8';
-    ctx.fillText(menuToast.text, bx, by);
-    ctx.textBaseline = 'alphabetic';
     ctx.restore();
+
+    drawUIText(menuToast.text, bx, by + 8, 'success', { size: 22, alpha: a });
   }
 }
 
 // ================= 首屏启动页 =================
+// 出现动画：从下方滑入 + 淡入 + 略微放大
+//   delay   延迟几秒开始
+//   dur     持续几秒
+// 返回 { alpha, offsetY, scale }
+function getEnterAnim(delay, dur){
+  const p = Math.max(0, Math.min(1, (bootAnimT - delay) / dur));
+  const ease = 1 - Math.pow(1 - p, 3);       // ease out cubic
+  return {
+    alpha:   Math.min(1, p * 1.6),
+    offsetY: (1 - ease) * 55,                 // 从下方 55px 滑入
+    scale:   0.72 + ease * 0.28               // 0.72 → 1.0
+  };
+}
+
+// 以 (cx, cy) 为中心做缩放 + 位移
+// fn 是要执行的绘制函数
+function withEnterAnim(cx, cy, a, fn){
+  ctx.save();
+  ctx.globalAlpha = a.alpha;
+  ctx.translate(cx, cy + a.offsetY);
+  ctx.scale(a.scale, a.scale);
+  ctx.translate(-cx, -cy);
+  fn();
+  ctx.restore();
+}
 function drawBootScreen(){
   drawAppBackground();
 
-  // 标题
-  drawCuteTitle(W/2, 240);
+  // ===== 主标题（最先出现） =====
+  withEnterAnim(W/2, 180, getEnterAnim(0.10, 0.85), () => {
+    drawCuteTitle(W/2, 180);
+  });
 
-  // 副标题
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText('末世鼠潮 · 猫咪反击战', W/2, 285);
-  ctx.fillStyle = '#d878a0';
-  ctx.fillText('末世鼠潮 · 猫咪反击战', W/2, 285);
+  // ===== 副标题 =====
+  withEnterAnim(W/2, 260, getEnterAnim(0.35, 0.75), () => {
+    drawUIText('末世鼠潮 · 猫咪反击战', W/2, 260, 'muted', { size: 30 });
+  });
 
-  // ===== 中间猫 =====
-  const cx = W/2;
-  const cy = H * 0.52;
-  const size = 280;
-  const breath = 1 + Math.sin(gameTime * 2.5) * 0.04;
-  const bob = Math.sin(gameTime * 3) * 4;
+  // ===== 点击提示（带呼吸脉冲） =====
+  {
+    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
+    const breathScale = 1 + pulse * 0.05;   // ★ 大小随脉冲变化 ±5%
 
-  // 光晕
-  const glow = ctx.createRadialGradient(cx, cy + bob, 0, cx, cy + bob, 200);
-  glow.addColorStop(0, 'rgba(255, 200, 220, 0.55)');
-  glow.addColorStop(1, 'rgba(255, 200, 220, 0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(cx, cy + bob, 200, 0, TAU);
-  ctx.fill();
-
-  // 脚下旋转爱心圈
-  ctx.save();
-  ctx.translate(cx, cy + 140);
-  ctx.strokeStyle = 'rgba(255, 160, 200, ' + (0.4 + 0.25 * Math.sin(gameTime * 2)) + ')';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(0, 0, 72 + Math.sin(gameTime * 2) * 5, 0, TAU);
-  ctx.stroke();
-  for(let i = 0; i < 4; i++){
-    const a = gameTime * 1.2 + i * TAU / 4;
-    drawSmallHeart(Math.cos(a) * 88, Math.sin(a) * 26, 8);
+    withEnterAnim(W/2, 870, getEnterAnim(0.80, 0.75), () => {
+      drawUIText('点击屏幕开始', W/2, 870, 'title', {
+        size: 50,
+        scale: breathScale,                   // ★ 呼吸缩放
+        glow: true,
+        glowColor: 'rgba(255, 210, 74, ' + (0.35 + pulse * 0.6) + ')',
+        glowSize: 24 + pulse * 22              // ★ 发光范围拉大
+      });
+    });
   }
-  ctx.restore();
 
-  // 猫本体
-  const opt = CAT_OPTIONS.find(o => o.key === catType) || CAT_OPTIONS[0];
-  ctx.save();
-  ctx.translate(cx, cy + bob);
-  ctx.scale(breath, breath);
-  drawCatSpriteAt(opt.spriteKey, 0, 0, size);
-  ctx.restore();
-
-  // ===== 底部呼吸提示 =====
-  const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
-  const tipY = H - 200;
-
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 30px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.98)';
-  ctx.strokeText('点击屏幕开始', W/2, tipY);
-  ctx.fillStyle = 'rgba(200, 72, 112, ' + (0.55 + pulse * 0.45) + ')';
-  ctx.fillText('点击屏幕开始', W/2, tipY);
-
-  ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(180, 120, 140, ' + (0.6 + pulse * 0.3) + ')';
-  ctx.fillText('开启声音 · 进入游戏', W/2, tipY + 34);
-
-  // 底部小爱心装饰
-  for(let i = 0; i < 3; i++){
-    const hx = W/2 + (i - 1) * 60;
-    const hy = tipY + 90 + Math.sin(gameTime * 2 + i) * 4;
-    ctx.save();
-    ctx.globalAlpha = 0.55 + 0.35 * Math.sin(gameTime * 2 + i * 1.3);
-    drawSmallHeart(hx, hy, 8);
-    ctx.restore();
+  // ===== 声音提示（与点击提示同相位，但幅度小） =====
+  {
+    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
+    withEnterAnim(W/2, 920, getEnterAnim(1.00, 0.75), () => {
+      drawUIText('开启声音 · 进入游戏', W/2, 920, 'muted', {
+        size: 25,
+        scale: 1 + pulse * 0.025                // ★ 幅度只有一半
+      });
+    });
   }
 }
 
@@ -7926,14 +8011,7 @@ function drawHelpScreen(){
   drawAppBackground();
 
   drawAppTitle('玩 法 说 明', W/2, 100, 44);
-
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText('点击任意项目查看教学', W/2, 140);
-  ctx.fillStyle = '#d878a0';
-  ctx.fillText('点击任意项目查看教学', W/2, 140);
+  drawUIText('点击任意项目查看教学', W/2, 140, 'muted', { size: 16 });
 
   helpListRects = [];
 
@@ -7997,11 +8075,15 @@ function drawHelpScreen(){
     ctx.fillStyle = '#7a5040';
     ctx.fillText(it.desc, x + 92, y + 58);
 
-    // 右侧箭头
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 28px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = it.color;
-    ctx.fillText('▶', x + cardW - 30, y + cardH / 2 + 2);
+    // 右侧箭头（素材）
+    const arrowSize = 32;
+    UI.drawIcon(
+      ctx,
+      'icon_arrow',
+      x + cardW - 30 - arrowSize / 2,
+      y + cardH / 2 - arrowSize / 2,
+      arrowSize
+    );
 
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
@@ -8057,27 +8139,22 @@ function drawVictoryScreen(){
 
   drawAppTitle('胜 利 !', W/2, 165, 72);
 
-  ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(40, 20, 10, 0.85)';
-  ctx.strokeText('你已通关全部 ' + MAX_WAVE + ' 波！', W/2, 215);
-  ctx.fillStyle = '#ffd0c0';
-  ctx.fillText('你已通关全部 ' + MAX_WAVE + ' 波！', W/2, 215);
+  drawUITextRich([
+    { text: '你已通关全部 ' },
+    { text: String(MAX_WAVE), colorKey: 'accent', gold: true },
+    { text: ' 波！' }
+  ], W/2, 215, { size: 24 });
 
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  ctx.strokeText('存活至第 ' + wave + ' 波  ·  得分 ' + score, W/2, 248);
-  ctx.fillStyle = '#ffd0c0';
-  ctx.fillText('存活至第 ' + wave + ' 波  ·  得分 ' + score, W/2, 248);
-
+  drawUITextRich([
+    { text: '存活至第 ' },
+    { text: String(wave),  colorKey: 'accent', gold: true },
+    { text: ' 波  ·  得分 ' },
+    { text: String(score), colorKey: 'accent', gold: true }
+  ], W/2, 248, { size: 18 });
   const statsBottom = drawDamageStats(W/2, 290, false);
 
   const tipY = Math.max(statsBottom + 45, 720);
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(40, 20, 10, 0.85)';
-  ctx.strokeText('要继续挑战无尽模式吗？', W/2, tipY);
-  ctx.fillStyle = '#ffd0c0';
-  ctx.fillText('要继续挑战无尽模式吗？', W/2, tipY);
+  drawUIText('要继续挑战无尽模式吗？', W/2, tipY, 'body', { size: 18 });
 
   const cb = VICTORY_CONTINUE_BTN;
   cb.y = tipY + 62;
@@ -8108,82 +8185,59 @@ function returnToMenu(){
 // ================= 暂停 =================
 function drawConfirmRestart(){
   // 全屏遮罩
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.fillRect(0, 0, W, H);
 
-  // 对话框面板（新素材）
-  const boxW = 460, boxH = 300;
-  const boxX = W/2 - boxW/2, boxY = H/2 - boxH/2 - 30;
+  // 面板尺寸
+  const boxW = 480, boxH = 340;
+  const boxX = W/2 - boxW/2, boxY = H/2 - boxH/2 - 40;
+
   UI.drawPanel(ctx, boxX, boxY, boxW, boxH, 'panel_bg');
 
+  // 内容内边距
+  const PAD = 44;
+
   // 标题
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#ff9a7a';
-  ctx.font = 'bold 34px "Microsoft YaHei",sans-serif';
-  ctx.fillText('确认退出游戏？', W/2, boxY + 62);
+  drawUIText('确认退出游戏？', W/2, boxY + 78, 'danger', { size: 36 });
 
-  // 提示文字
-  ctx.fillStyle = '#e8d8d0';
-  ctx.font = '20px "Microsoft YaHei",sans-serif';
-  ctx.fillText('本局将结算并返回主菜单', W/2, boxY + 116);
+  // 副标题
+  drawUIText('本局将结算并返回主菜单', W/2, boxY + 132, 'body', { size: 20 });
 
-  ctx.fillStyle = '#ff9a7a';
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-  ctx.fillText('第 ' + Math.max(1, wave) + ' 波  ·  得分 ' + score, W/2, boxY + 152);
+  // 数值行
+  drawUITextRich([
+    { text: '第 ' },
+    { text: String(Math.max(1, wave)), colorKey: 'accent', gold: true },
+    { text: ' 波  ·  得分 ' },
+    { text: String(score),             colorKey: 'accent', gold: true }
+  ], W/2, boxY + 172, { size: 22 });
 
-  ctx.fillStyle = '#b0a0a0';
-  ctx.font = '15px "Microsoft YaHei",sans-serif';
-  ctx.fillText('此操作不可撤销', W/2, boxY + 184);
+  // 提示
+  drawUIText('此操作不可撤销', W/2, boxY + 212, 'muted', { size: 16 });
 
-  // 取消按钮
-  const no = CONFIRM_NO_BTN;
-  const nx = no.x - no.w/2, ny = no.y - no.h/2;
-  rr(nx, ny, no.w, no.h, 12);
-  ctx.fillStyle = 'rgba(120,130,120,0.25)';
-  ctx.fill();
-  ctx.strokeStyle = '#8a9a90';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.fillStyle = '#c8d8ce';
-  ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-  ctx.fillText('取消', no.x, no.y + 9);
-
-  // 确认按钮
-  const yes = CONFIRM_YES_BTN;
-  const yx = yes.x - yes.w/2, yy = yes.y - yes.h/2;
-  rr(yx, yy, yes.w, yes.h, 12);
-  ctx.fillStyle = 'rgba(255,90,60,0.28)';
-  ctx.fill();
-  ctx.strokeStyle = '#ff5a3c';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.fillStyle = '#ffd0c0';
-  ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-  ctx.fillText('确认', yes.x, yes.y + 9);
+  // 底部按钮（直接复用全局常量，跟点击检测共用坐标）
+  drawAppButton(CONFIRM_NO_BTN,  '取 消', '#7fb8ff', '#3878b8', { fontSize: 24 });
+  drawAppButton(CONFIRM_YES_BTN, '确 认', '#ff8fb0', '#c84870', { fontSize: 24 });
 }
 function drawPauseOverlay(){
   drawAppOverlay(0.85);
 
   drawAppTitle('游 戏 暂 停', W/2, 110, 48);
 
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(40, 20, 10, 0.85)';
-  ctx.strokeText('第 ' + Math.max(1, wave) + ' 波  ·  得分 ' + score, W/2, 152);
-  ctx.fillStyle = '#ffd0c0';
-  ctx.fillText('第 ' + Math.max(1, wave) + ' 波  ·  得分 ' + score, W/2, 152);
+  drawUITextRich([
+    { text: '第 ' },
+    { text: String(Math.max(1, wave)), colorKey: 'accent', gold: true },
+    { text: ' 波  ·  得分 ' },
+    { text: String(score),             colorKey: 'accent', gold: true }
+  ], W/2, 152, { size: 20 });
 
   drawDamageStats(W / 2, 200, false);
 
   drawAppButton(RESUME_BTN,     '继 续',     '#7fe0a0', '#289858', { fontSize: 30 });
-  drawAppButton(PAUSE_LB_BTN,   '历史战绩',  '#ffd24a', '#c87820', { fontSize: 22 });  drawAppButton(PAUSE_HELP_BTN, '玩法说明',  '#7fb8ff', '#3878b8', { fontSize: 22 });
+  drawAppButton(PAUSE_LB_BTN,   '历史战绩',  '#ffd24a', '#c87820', { fontSize: 22 });
+  drawAppButton(PAUSE_HELP_BTN, '玩法说明',  '#7fb8ff', '#3878b8', { fontSize: 22 });
   drawAppButton(RESTART_BTN,    '退出游戏',  '#ff8fb0', '#c84870', { fontSize: 22 });
 
-  ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(255, 220, 200, 0.75)';
-  ctx.textAlign = 'center';
-  ctx.fillText('按 P 或 Esc 也可继续', W / 2, H - 40);
+  drawUIText('按 P 或 Esc 也可继续', W/2, H - 40, 'muted', { size: 14 });
 }
 
 // ================= Buff 选择 =================
@@ -8210,7 +8264,7 @@ function drawBuffSelect(){
   const panelPad = 30;
   const headerH = 150;
   const panelW = panelTotalW + panelPad * 2;
-  const panelH = headerH + CH + (hasUnlockCard ? 130 : 40);
+  const panelH = headerH + CH + (hasUnlockCard ? 170 : 80);
   const panelX = (W - panelW) / 2;
   const panelY = (H - panelH) / 2;
 
@@ -8406,10 +8460,10 @@ function drawBuffSelect(){
 
     // ==================== 推荐标签 ====================
     if(isRecommended(b.id)){
-      const tagW = 70;
-      const tagH = 26;
-      const tagX = x + CW - tagW + 8;
-      const tagY = y - 12;
+      const tagW = 72;
+      const tagH = 28;
+      const tagX = x + CW - tagW - 4;
+      const tagY = y + 4;
       const tagPulse = 0.5 + Math.sin(gameTime * 5) * 0.5;
 
       ctx.save();
@@ -8438,7 +8492,7 @@ function drawBuffSelect(){
     }
 
     // ==================== 区域 1：标题（颜色按稀有度） ====================
-    const sec1Bot = y + 76;
+    const sec1Bot = y + 82;
 
     ctx.textAlign = 'center';
     ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
@@ -8468,11 +8522,15 @@ function drawBuffSelect(){
     ctx.stroke();
 
     // ==================== 区域 2：图标 + 右下角武器类型标签 ====================
-    const sec2Bot = y + 195;
+    const sec2Bot = y + 200;
     const iconCy = (sec1Bot + sec2Bot) / 2;
     const iconR = 44;
 
-    drawCircleIconBack(x + CW / 2, iconCy, iconR, '#f4fbff', 'rgba(120, 180, 220, 0.9)');
+    // ★ 按稀有度选底框素材
+    const frameKey = rarity === 'purple' ? 'frame_purple'
+                   : rarity === 'red'    ? 'frame_red'
+                   :                       'frame_blue';
+    UI.drawFrame(ctx, x + CW / 2 - iconR, iconCy - iconR, iconR * 2, iconR * 2, frameKey);
     drawBuffIcon(b.id, x + CW / 2, iconCy, iconR * 1.3, b.color || '#2a4a62');
 
     // 右下角小标签
@@ -8613,22 +8671,19 @@ function drawDeadScreen(){
 
   drawAppTitle('喵 星 陨 落', W/2, 80, 52);
 
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(40, 20, 10, 0.85)';
-  ctx.strokeText('存活到第 ' + wave + ' 波  ·  得分 ' + score, W/2, 122);
-  ctx.fillStyle = '#ffd0c0';
-  ctx.fillText('存活到第 ' + wave + ' 波  ·  得分 ' + score, W/2, 122);
+  drawUITextRich([
+    { text: '存活到第 ' },
+    { text: String(wave),  colorKey: 'accent', gold: true },
+    { text: ' 波  ·  得分 ' },
+    { text: String(score), colorKey: 'accent', gold: true }
+  ], W/2, 122, { size: 20 });
 
   drawDamageStats(W/2, 180, false);
 
-  drawAppButton(DEAD_LB_BTN,      '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });  drawAppButton(DEAD_RESTART_BTN, '重新开始', '#7fe0a0', '#289858', { fontSize: 24 });
+  drawAppButton(DEAD_LB_BTN,      '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });
+  drawAppButton(DEAD_RESTART_BTN, '重新开始', '#7fe0a0', '#289858', { fontSize: 24 });
 
-  ctx.font = 'bold 14px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(255, 220, 200, 0.7)';
-  ctx.textAlign = 'center';
-  ctx.fillText('按 R 也可重开', W/2, H - 40);
+  drawUIText('按 R 也可重开', W/2, H - 40, 'muted', { size: 14 });
 }
 
 // ================= 教程界面 =================
@@ -9439,28 +9494,13 @@ function drawStageClearScreen(){
   const titleText = info.isLastStage ? '教学完成' : ('第 ' + info.finishedStage + ' 关 通过');
   const titleY = panelY + 100;
 
-  // 描边层
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = 'bold 48px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-  ctx.strokeText(titleText, W / 2, titleY);
-  ctx.restore();
-
-  // 填充层（独立 save/restore，位置完全一致）
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = 'bold 48px "Microsoft YaHei",sans-serif';
-  const titleGrd = ctx.createLinearGradient(0, titleY - 30, 0, titleY + 30);
-  titleGrd.addColorStop(0, '#fff5c0');
-  titleGrd.addColorStop(0.5, '#ffd24a');
-  titleGrd.addColorStop(1, '#ffb020');
-  ctx.fillStyle = titleGrd;
-  ctx.fillText(titleText, W / 2, titleY);
-  ctx.restore();
+  drawUIText(titleText, W/2, titleY, 'title', {
+    size: 48,
+    gradient: UI_GRADIENT_GOLD,
+    glow: true,
+    glowColor: 'rgba(255, 210, 74, 0.75)',
+    glowSize: 20
+  });
 
   // ===== 按钮（面板中下、文字严格居中） =====
   const btn = STAGE_CLEAR_BTN;
@@ -9469,13 +9509,11 @@ function drawStageClearScreen(){
     ? '进入无尽模式 ▶'
     : ('进入第 ' + (info.finishedStage + 1) + ' 关 ▶');
 
-  // 强制 alphabetic baseline，让 drawAppButton 内部文字垂直居中
   ctx.save();
   ctx.textBaseline = 'alphabetic';
   drawAppButton(btn, btnText, '#7fe0a0', '#289858', { fontSize: 30, pulse: true });
   ctx.restore();
 }
-
 // ================= 低血量警告 =================
 function drawLowHpWarning(){
   if(!player) return;
