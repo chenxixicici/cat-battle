@@ -47,7 +47,7 @@ const LB_CLOSE_BTN     = { x: W/2, y: H - 80, w: 240, h: 62 };
 const CONFIRM_NO_BTN  = { x: W/2 - 90, y: 0, w: 160, h: 60 };   // 左边：取消
 const CONFIRM_YES_BTN = { x: W/2 + 90, y: 0, w: 160, h: 60 };   // 右边：确认
 const AVATAR      = { x: 50, y: 50, r: 36 };
-const HELP_QUICK_BTN = { x: 50, y: 168, r: 48 };
+const HELP_QUICK_BTN = { x: 50, y: 240, r: 48 };
 
 // 主菜单按钮
 const MENU_START_BTN = { x: W/2, y: 880, w: 400, h: 96 };
@@ -121,9 +121,9 @@ let editingCatKey = null;
 let nameInput = null;
 
 // 猫选择界面按钮
-const CATCHOOSE_STAGE_BTN   = { x: W/2, y: 790, w: 400, h: 80 };   // 开始闯关
-const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 880, w: 400, h: 80 };   // 无尽模式
-const CATCHOOSE_BACK_BTN   = { x: W/2, y: 965, w: 260, h: 60 };
+const CATCHOOSE_STAGE_BTN   = { x: W/2, y: 880,  w: 400, h: 96 };   // 开始闯关
+const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 1000, w: 400, h: 96 };   // 无尽模式
+const CATCHOOSE_BACK_BTN    = { x: W/2, y: 1120, w: 400, h: 96 };
 // 两张猫卡片的矩形（用于点击检测）
 const CAT_CARD_RECTS = [
   { x: 60,  y: 220, w: 280, h: 500, key: 'mimi' },
@@ -185,15 +185,13 @@ function drawCatSpriteAt(spriteKey, cx, cy, size){
 const LINES = {
   hurt:   ['喵呜——好痛！', 'sing精兵别咬我喵！', '嗷呜！再打我就咬死你！'],
   can:    ['接招！罐头炸弹！', '尝尝这个喵！', '开饭时间到！', '喵！快递来咯！'],
-  laser:  ['你们才是真正的英雄~', '我想做什么就做什么！！！'],
+  laser:  ['你们才是真正的英雄~', '我想做什么就做什么！！！', '我miaolander来啦！！！'],
   missile:['追踪导弹！发射！', '锁定目标！', '不陪我玩就炸飞你们！！', '点杀最高血量！', '看我炸扁你们！'],
   heal:   ['回血啦喵~', '呼——舒服多了', '血包真香！'],
-  gold:   ['我miaolander来啦！！！', '激光充能！看我扫平一切！'],
   orb:    ['毛球起飞！', '毛球开启！', '看我的毛球！'],
   airstrike: ['空袭来了！', '炸弹雨来咯！', '天上掉罐头啦！', '快躲开喵！'],
   avatar: ['新头像好看吗喵？', '这个头像我喜欢！', '本喵上镜吗？'],
-  double: ['双重强化！', '双份快乐喵！', '运气爆棚！'],
-  goldswitch: ['金色激光！', '看我变身！', '金色模式启动！']
+  double: ['双重强化！', '双份快乐喵！', '运气爆棚！']
 };
 
 let zhVoice = null;
@@ -582,7 +580,6 @@ const WEAPON_NAMES = {
   can:       { name: '罐头',    color: '#ff9f6b' },
   airstrike: { name: '空袭',    color: '#ff6b4a' },
   laser:     { name: '激光',    color: '#88eeff' },
-  laserGold: { name: '金色激光', color: '#ffd24a' },
   missile:   { name: '导弹',    color: '#ff8a3c' }
 };
 
@@ -1122,6 +1119,40 @@ function drawLbBuffPopup(){
 }
 // ================= 存档系统 =================
 const SAVE_KEY = 'cat_battle_save_v2';
+// ================= 货币系统 =================
+const CURRENCY_KEY = 'cat_battle_currency_v1';
+let currency = { coins: 500, diamonds: 0 };
+
+function loadCurrency(){
+  try{
+    const raw = localStorage.getItem(CURRENCY_KEY);
+    if(!raw){
+      // 新玩家首次进入：给初始货币
+      currency.coins = 500;
+      currency.diamonds = 0;
+      saveCurrency();
+      return;
+    }
+    const d = JSON.parse(raw);
+    if(typeof d.coins    === 'number') currency.coins    = Math.max(0, Math.floor(d.coins));
+    if(typeof d.diamonds === 'number') currency.diamonds = Math.max(0, Math.floor(d.diamonds));
+  }catch(e){}
+}
+function saveCurrency(){
+  try{
+    localStorage.setItem(CURRENCY_KEY, JSON.stringify(currency));
+  }catch(e){}
+}
+function addCoins(n){
+  if(!n || n <= 0) return;
+  currency.coins += n;
+  saveCurrency();
+}
+function addDiamonds(n){
+  if(!n || n <= 0) return;
+  currency.diamonds += n;
+  saveCurrency();
+}
 const TUTORIAL_DONE_KEY = 'cat_battle_tutorial_done_v1';
 
 function hasDoneTutorial(){
@@ -2176,10 +2207,12 @@ const DROP_TYPES = {
   heal_small:   { kind:'heal',  value:2, color:'#ff9a9a', icon:'✚' },  // 0.5 颗心
   heal_medium:  { kind:'heal',  value:4, color:'#ff6b6b', icon:'✚' },  // 1 颗心
   heal_large:   { kind:'heal',  value:8, color:'#ff4a4a', icon:'✚' },  // 2 颗心
-  laser_charge: { kind:'laser', color:'#ffd24a', icon:'⚡' }
+  coin:         { kind:'coin',    color:'#ffd24a', icon:'¥' },
+  diamond:      { kind:'diamond', color:'#88e0ff', icon:'◆' }
 };
 const HEAL_POOL = ['heal_small','heal_small','heal_medium','heal_medium','heal_large'];
 const DROP_DURATION = 22;
+const DROP_MAX_ON_FIELD = 25;   // ★ 屏幕上最多同时存在 25 个掉落物
 
 // ================= BUFF =================
 const BUFFS = [
@@ -2198,7 +2231,6 @@ const BUFFS = [
   { id:'blast',         name:'罐头爆炸', desc:'罐头爆炸范围 +35%',    max:4, icon:'💣', color:'#ffcf5c' },
   { id:'laserup',       name:'激光充能', desc:'能量获取 +60%',        max:4, icon:'✨', color:'#a0d0ff' },
   { id:'laserpower',    name:'激光强化', desc:'激光伤害 +45%',        max:5, icon:'🔫', color:'#88eeff' },
-  { id:'laser_count',   name:'激光分裂', desc:'激光同时锁定 +1 个敌人', max:3, icon:'✨', color:'#88eeff' },
   { id:'frozen_bullet', name:'冰冻弹',   desc:'猫粮附加冰冻几率 +8%', max:5, icon:'❄', color:'#a0e8ff' },
   { id:'airstrike',     name:'全屏轰炸', desc:'自动空投炸弹，每级 +1 颗', max:5, icon:'💣', color:'#ff8a3c' },
   { id:'vitality',      name:'生命强化', desc:'生命上限 +30 并回满',  max:5, icon:'❤', color:'#ff6b8a' }
@@ -2210,8 +2242,7 @@ const BUFFS = [
 const RECOMMENDED_BUFFS = [
   'frozen_bullet',   // 冰冻弹
   'airstrike',       // 全屏轰炸
-  'multishot',       // 多重弹道
-  'laser_count'      // 激光分裂
+  'multishot'        // 多重弹道
 ];
 
 function isRecommended(id){
@@ -2241,7 +2272,6 @@ function getBuffPreviewText(id, lv){
     case 'blast':         return '爆炸范围：' + Math.round(140*(1+0.35*lv)) + ' → ' + Math.round(140*(1+0.35*next));
     case 'laserup':       return '能量加成：' + Math.round(100+60*lv) + '% → ' + Math.round(100+60*next) + '%';
     case 'laserpower':    return '激光伤害：' + Math.round(140*(1+0.45*lv)) + ' → ' + Math.round(140*(1+0.45*next));
-    case 'laser_count':   return '激光锁定：' + (1+lv) + ' → ' + (1+next) + ' 个';
     case 'frozen_bullet': return '冰冻几率：' + Math.round((0.06+0.08*lv)*100) + '% → ' + Math.round((0.06+0.08*next)*100) + '%';
     case 'airstrike':     return '炸弹数量：' + (3+lv) + ' → ' + (3+next) + ' 颗，伤害 +30';
     case 'vitality':      return '生命上限：' + (100+30*lv) + ' → ' + (100+30*next);
@@ -2272,7 +2302,7 @@ const BUFF_RARITY = {
   laserup: 'purple', laserpower: 'purple',
   vitality: 'purple',
   // 红（质变）
-  multishot: 'red', laser_count: 'red', airstrike: 'red'
+  multishot: 'red', airstrike: 'red'
 };
 
 // 稀有度配色
@@ -2350,7 +2380,6 @@ const DAMAGE_COLORS = {
   orb:       '#ffb0d0',
   can:       '#ff9f6b',
   laser:     '#88eeff',
-  laserGold: '#ffd24a',
   missile:   '#ff8a3c'
 };
 const CRIT_CHANCE = 0.12;
@@ -2489,18 +2518,7 @@ function drawBuffIcon(id, cx, cy, size, color){
       ctx.lineTo(Math.cos(a - 0.5) * s * 0.85, Math.sin(a - 0.5) * s * 0.85);
       ctx.stroke();
     }
-  } else if(id === 'laser_count'){
-    // 三道平行光线
-    for(let i = -1; i <= 1; i++){
-      ctx.beginPath();
-      ctx.moveTo(-s * 0.8, i * s * 0.5);
-      ctx.lineTo(s * 0.8, i * s * 0.5);
-      ctx.stroke();
-    }
-    // 箭头
-    ctx.beginPath();
-    ctx.moveTo(s * 0.4, -s * 0.9); ctx.lineTo(s * 0.9, -s * 0.5); ctx.lineTo(s * 0.4, -s * 0.1);
-    ctx.stroke();
+
   } else if(id === 'laserup' || id === 'laserpower'){
     ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, TAU); ctx.fill();
     for(let i = 0; i < 4; i++){
@@ -2727,7 +2745,7 @@ const BUFF_POOLS = {
   bullet:    ['multishot', 'firerate', 'damage', 'frozen_bullet'],
   can:       ['canpower', 'blast'],
   orb:       ['orb_count', 'orb_damage', 'orb_size', 'orb_radius'],
-  laser:     ['laserup', 'laserpower', 'laser_count'],
+  laser:     ['laserup', 'laserpower'],
   missile:   ['missile_count', 'missile_damage', 'missile_charge'],
   airstrike: ['airstrike']
 };
@@ -2859,6 +2877,8 @@ let pendingCritReward = false;  // 暴击：待触发的额外选择
 let isSecondPick = false;       // 当前是否处于第二次选择
 let airstrikeBombs = [];     // 正在下落的炸弹
 let groundDecorations = [];
+let runCoins = 0;      // 本场战斗累计获得的金币
+let runDiamonds = 0;   // 本场战斗累计获得的钻石
 
 // ============ 猫小弟 ============
 let catBros = [];             // 所有猫小弟
@@ -2997,13 +3017,12 @@ const MISSILE_SPEED        = 640;
 
 let laser = {
   active: false,
-  angle: 0,            // 当前发射方向
-  hitSet: new Map(),   // { enemyId: { accum, timer } } 飘字累积
+  angle: 0,
+  hitSet: new Map(),
   timer: 0,
   duration: 8.0,
   dps: 0,
-  flash: 0,
-  isGold: false
+  flash: 0
 };
 
 function reset(mode, stageNum){
@@ -3032,7 +3051,6 @@ function reset(mode, stageNum){
     laserRadius: LASER_BASE_RADIUS,
     invuln: 0,
     avatarImg: savedAvatar,
-    laserChargeTimer: 0,
     buffLevels: {},
     orbCount: 0,
     orbDamage: ORB_BASE_DAMAGE,
@@ -3101,11 +3119,12 @@ function reset(mode, stageNum){
   laser.timer = 0;
   laser.dps = 0;
   laser.flash = 0;
-  laser.isGold = false;
   laserCooldown = 0;
     // 毛球技能状态已在 player 对象里初始化
   stopBGM();
   runDamageStats = {};
+  runCoins = 0;
+  runDiamonds = 0;
   resetJoy(moveJoy, MOVE_BASE);
 
   generateGroundDecorations();
@@ -3501,22 +3520,23 @@ function chooseBuff(id){
 }
 
 // ================= 掉落物 =================
-function addDrop(x, y, type){
+function addDrop(x, y, type, value){
+  if(drops.length >= DROP_MAX_ON_FIELD) return;   // 屏幕上限保护
+  const isCurrency = (type === 'coin' || type === 'diamond');
   drops.push({
     x: clamp(x, 30, WORLD.w - 30),
     y: clamp(y, 30, WORLD.h - 30),
     vx: rand(-80, 80), vy: rand(-80, 80),
     type,
+    value: value || 1,
     life: DROP_DURATION, maxLife: DROP_DURATION,
     bob: Math.random() * TAU,
-    r: 14
+    r: isCurrency ? 18 : 14,
+    attractDelay: isCurrency ? 0.5 : 0   // ★ 金币/钻石延迟 0.5 秒才被吸附
   });
 }
 function spawnEliteDrops(x, y){
   addDrop(x + rand(-14,14), y + rand(-14,14), randLine(HEAL_POOL));
-  if(Math.random() < 0.20){
-    addDrop(x + rand(-24,24), y + rand(-24,24), 'laser_charge');
-  }
 }
 function pickupDrop(d){
   const t = DROP_TYPES[d.type];
@@ -3528,11 +3548,20 @@ function pickupDrop(d){
     rings.push({ x:player.x, y:player.y, maxR: 42, life:0.4, t:0.4, color: t.color });
     addFloatText(player.x, player.y - 30, '+' + (amount / 4).toFixed(2), '#7ef07e', false);
     say(randLine(LINES.heal), true);
-  } else if(t.kind === 'laser'){
-    player.laserChargeTimer = 15;
-    burst(player.x, player.y, 16, '#ffd24a', 280);
-    rings.push({ x:player.x, y:player.y, maxR: 56, life:0.45, t:0.45, color: '#ffd24a' });
-    say(randLine(LINES.gold), true);
+  } else if(t.kind === 'coin'){
+    const amount = d.value || 1;
+    addCoins(amount);
+    runCoins += amount;   // ★ 累计本场
+    burst(player.x, player.y, 10, '#ffd24a', 220);
+    rings.push({ x:player.x, y:player.y, maxR: 38, life:0.35, t:0.35, color: '#ffd24a' });
+    addFloatText(player.x, player.y - 30, '+' + amount, '#ffd24a', false);
+  } else if(t.kind === 'diamond'){
+    const amount = d.value || 1;
+    addDiamonds(amount);
+    runDiamonds += amount;   // ★ 累计本场
+    burst(player.x, player.y, 14, '#88e0ff', 260);
+    rings.push({ x:player.x, y:player.y, maxR: 48, life:0.4, t:0.4, color: '#88e0ff' });
+    addFloatText(player.x, player.y - 30, '+' + amount, '#88e0ff', false);
   }
 }
 function updateDrops(dt){
@@ -3545,8 +3574,14 @@ function updateDrops(dt){
     const dx = player.x - d.x, dy = player.y - d.y;
     const dist = Math.hypot(dx, dy) || 0.001;
 
-    if(dist < 130){
-      const pull = 420 * dt / dist;
+    // ★ 延迟吸附：生成后短暂时间内自由飞散，不被玩家吸走
+    if(d.attractDelay > 0){
+      d.attractDelay -= dt;
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      d.vx *= 0.93; d.vy *= 0.93;
+    } else if(dist < 360){
+      const safeDist = Math.max(dist, 1);
+      const pull = 620 * dt / safeDist;
       d.x += dx * pull; d.y += dy * pull;
     } else {
       d.x += d.vx * dt; d.y += d.vy * dt;
@@ -3555,7 +3590,10 @@ function updateDrops(dt){
     d.x = clamp(d.x, 20, WORLD.w - 20);
     d.y = clamp(d.y, 20, WORLD.h - 20);
 
-    if(dist < player.r + d.r){
+    // 碰撞判定用最新位置重算
+    const fdx = player.x - d.x, fdy = player.y - d.y;
+    const fdist = Math.hypot(fdx, fdy);
+    if(fdist < player.r + d.r){
       pickupDrop(d);
       drops.splice(i, 1);
     }
@@ -4157,6 +4195,34 @@ function explodeCan(c){
   }
 }
 
+// ================= 掉落判定 =================
+function rollEnemyDrop(type, x, y){
+  // 怪分类
+  let tier;
+  if(type === 'armored' || type === 'elite') tier = 'elite';
+  else if(type === 'skeleton' || type === 'brute') tier = 'advanced';
+  else tier = 'normal';
+
+  // 金币：100% 掉落
+  let coinCount;
+  if(tier === 'elite')         coinCount = 5 + Math.floor(Math.random() * 4);   // 5~8
+  else if(tier === 'advanced') coinCount = 2 + Math.floor(Math.random() * 3);   // 2~4
+  else                         coinCount = 1 + Math.floor(Math.random() * 2);   // 1~2
+  addDrop(x + rand(-14,14), y + rand(-14,14), 'coin', coinCount);
+
+  // 钻石：按概率
+  let diamondChance;
+  if(tier === 'elite')         diamondChance = 0.50;
+  else if(tier === 'advanced') diamondChance = 0.12;
+  else                         diamondChance = 0.05;
+
+  if(Math.random() < diamondChance){
+    let diamondCount = 1;
+    if(tier === 'elite' && Math.random() < 0.5) diamondCount = 2;
+    addDrop(x + rand(-20,20), y + rand(-20,20), 'diamond', diamondCount);
+  }
+}
+
 function killEnemy(e, giveEnergy){
   if(e.dead) return;
   e.dead = true;
@@ -4164,6 +4230,10 @@ function killEnemy(e, giveEnergy){
   stageKillCount++;
   burst(e.x, e.y, 16, e.color, 220);
   burst(e.x, e.y, 8, '#c94a4a', 180);
+
+  // ★ 掉落判定：金币 / 钻石
+  rollEnemyDrop(e.type, e.x, e.y);
+
   if(e.elite){
     rings.push({ x:e.x, y:e.y, maxR: 70, life:0.5, t:0.5,
                  color: e.demon ? '#ff5a3c' : '#c8d0c8' });
@@ -4214,15 +4284,14 @@ function fireLaser(){
 
   laserCooldown = LASER_COOLDOWN_MAX;
   laser.active = true;
-  laser.angle = -Math.PI / 2;   // ★ 永远朝正上方
+  laser.angle = -Math.PI / 2;   // 永远朝正上方
   laser.timer = 0;
   laser.dps = player.laserDamage * 0.35;
   laser.flash = 1;
-  laser.isGold = player.laserChargeTimer > 0;
   laser.hitSet = new Map();
 
   say(randLine(LINES.laser), true);
-  cam.shake = Math.max(cam.shake, laser.isGold ? 14 : 10);
+  cam.shake = Math.max(cam.shake, 10);
   sfx('laser');
 }
 
@@ -4230,73 +4299,52 @@ function updateLaser(dt){
   if(laser.flash > 0) laser.flash = Math.max(0, laser.flash - dt * 3);
   if(!laser.active) return;
 
-  // 实时检测金色激光
-  const shouldGold = player.laserChargeTimer > 0;
-  if(shouldGold !== laser.isGold){
-    laser.isGold = shouldGold;
-    laser.flash = 1;
-    rings.push({ x: player.x, y: player.y, maxR: 80, life: 0.4, t: 0.4, color: '#ffd24a' });
-    burst(player.x, player.y, 20, '#ffd24a', 320);
-    say(randLine(LINES.goldswitch), true);
-  }
-
   laser.timer += dt;
-  // ★ 方向固定朝上，不跟随
 
-  // 激光起点（玩家前方偏移）
   const facingLeft = Math.cos(laser.angle) < 0;
   const ox = player.x + (facingLeft ? -8 : 8);
   const oy = player.y - player.r * 0.6;
 
-  const L = player.laserRadius;   // 激光长度
+  const L = player.laserRadius;
   const cosA = Math.cos(laser.angle);
   const sinA = Math.sin(laser.angle);
 
-  const dmgMult = (laser.isGold ? 2.0 : 1.0);
-  const rawDmg = laser.dps * dt * dmgMult;
+  const rawDmg = laser.dps * dt;
   const laserWidthBonus = player.buffLevels.laserpower || 0;
   const beamHalfWidth = 22 * (1 + 0.18 * laserWidthBonus);
 
-  // ===== 对每个敌人判定是否在光束内（穿透，不衰减） =====
   for(const e of enemies){
     if(e.dead) continue;
 
     const dx = e.x - ox;
     const dy = e.y - oy;
 
-    // 投影长度（沿光束方向）
     const proj = dx * cosA + dy * sinA;
     if(proj < 0 || proj > L) continue;
 
-    // 垂直距离
     const perp = Math.abs(-dx * sinA + dy * cosA);
     if(perp > e.r + beamHalfWidth) continue;
 
-    // 命中：伤害不衰减，每个敌人一样
     dealDamage(e, rawDmg, 'laser', { silent: true, noCrit: true });
     e.slowTimer = 0.25;
 
-    // 飘字累积
     let hi = laser.hitSet.get(e.id);
     if(!hi){ hi = { accum: 0, timer: 0 }; laser.hitSet.set(e.id, hi); }
     hi.accum += rawDmg;
     hi.timer += dt;
     if(hi.timer >= 0.2){
-      const col = laser.isGold ? '#ffd24a' : '#88eeff';
-      addFloatText(e.x, e.y - e.r - 6, Math.round(hi.accum), col, false);
+      addFloatText(e.x, e.y - e.r - 6, Math.round(hi.accum), '#88eeff', false);
       hi.accum = 0;
       hi.timer = 0;
     }
 
     if(Math.random() < dt * 40){
-      burst(e.x + rand(-8,8), e.y + rand(-8,8), 2,
-            laser.isGold ? '#ffd24a' : '#88eeff', 160);
+      burst(e.x + rand(-8,8), e.y + rand(-8,8), 2, '#88eeff', 160);
     }
 
     if(e.hp <= 0) killEnemy(e);
   }
 
-  // 清理已死敌人的 hitSet
   if(laser.hitSet.size > 60){
     for(const id of Array.from(laser.hitSet.keys())){
       let alive = false;
@@ -4443,7 +4491,6 @@ function update(dt){
   autoCastAnim += (targetAnim - autoCastAnim) * Math.min(1, dt * 12);
   if(Math.abs(targetAnim - autoCastAnim) < 0.005) autoCastAnim = targetAnim;
 
-  if(player.laserChargeTimer > 0) player.laserChargeTimer = Math.max(0, player.laserChargeTimer - dt);
   if(laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt);
 
   // ★ 毛球计时
@@ -4881,7 +4928,7 @@ function update(dt){
     waveBreakTimer -= dt;
     if(waveBreakTimer <= 0){
       wave++;
-      if(currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE){
+      if(currentStage >= 1 && currentStage <= TOTAL_STAGES){
         waveInStage++;
       }
       // ★ 猫小弟暂时不加入战斗（调整完毕后删掉下面的 return 即可恢复）
@@ -5234,23 +5281,41 @@ function drawDrops(){
     ctx.globalAlpha = a;
     ctx.translate(d.x, d.y + bob);
     ctx.fillStyle = 'rgba(0,0,0,.35)';
-    ctx.beginPath(); ctx.ellipse(0, 14 - bob, 11, 4, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 16 - bob, 12, 4.5, 0, 0, TAU); ctx.fill();
 
     const pulse = 0.5 + Math.sin(d.bob * 2) * 0.5;
+
+    // 外圈光晕（跟随 drop 大小）
     ctx.globalAlpha = a * (0.28 + pulse * 0.2);
     ctx.fillStyle = t.color;
-    ctx.beginPath(); ctx.arc(0, 0, 22 + pulse * 4, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, d.r * 1.7 + pulse * 4, 0, TAU); ctx.fill();
 
+    // 底盘
     ctx.globalAlpha = a;
     ctx.beginPath(); ctx.arc(0, 0, d.r, 0, TAU);
     ctx.fillStyle = t.color; ctx.fill();
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(t.icon, 0, 1);
-    ctx.textBaseline = 'alphabetic';
+    // 金币 / 钻石：优先用素材图标（放大到 d.r × 2.4）
+    const useIcon = (d.type === 'coin' || d.type === 'diamond');
+    let drawn = false;
+    if(useIcon){
+      const iconKey = d.type === 'coin' ? 'icon_coin' : 'icon_diamond';
+      const iconImg = UI.assets[iconKey];
+      if(iconImg){
+        const sz = d.r * 2.4;
+        ctx.drawImage(iconImg, -sz/2, -sz/2, sz, sz);
+        drawn = true;
+      }
+    }
+    if(!drawn){
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.icon, 0, 1);
+      ctx.textBaseline = 'alphabetic';
+    }
+
     ctx.restore();
   }
 }
@@ -5267,12 +5332,6 @@ function drawCat(){
 
   drawGroundShadow(p.x, p.y + r * 1.3, r * 1.6, r * 0.5, 0.4);
 
-  if(p.laserChargeTimer > 0){
-    const a = 0.35 + Math.sin(gameTime * 6) * 0.15;
-    ctx.strokeStyle = 'rgba(255,210,74,' + a + ')';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(p.x, p.y, r + 22, 0, TAU); ctx.stroke();
-  }
 
   const curSpr = getCurrentCatSprite();
   if(curSpr && curSpr.loaded && curSpr.img){
@@ -6271,18 +6330,15 @@ function drawLaser(){
   const ox = player.x + (facingLeft ? -8 : 8);
   const oy = player.y - player.r * 0.6;
 
-  const c1 = laser.isGold ? '255, 215, 80'  : '120, 240, 255';
-  const c2 = laser.isGold ? '255, 240, 160' : '200, 250, 255';
+  const c1 = '120, 240, 255';
+  const c2 = '200, 250, 255';
 
   const fadeIn  = Math.min(1, laser.timer / 0.12);
   const fadeOut = Math.min(1, (laser.duration - laser.timer) / 0.3);
   const alpha = Math.min(fadeIn, fadeOut);
 
-  // 粗细随 laserpower 等级增加
   const laserWidthBonus = player.buffLevels.laserpower || 0;
   const wScale = 1 + 0.18 * laserWidthBonus;
-
-  // 呼吸脉冲
   const pulse = 0.88 + Math.sin(gameTime * 28) * 0.12;
 
   ctx.save();
@@ -6290,7 +6346,6 @@ function drawLaser(){
   ctx.translate(ox, oy);
   ctx.rotate(angle);
 
-  // ===== 1. 外层光晕（宽度方向渐变，中心浓边缘淡） =====
   {
     const outerW = 52 * wScale * pulse;
     const g = ctx.createLinearGradient(0, -outerW, 0, outerW);
@@ -6303,7 +6358,6 @@ function drawLaser(){
     ctx.fillRect(0, -outerW, L, outerW * 2);
   }
 
-  // ===== 2. 中层亮束 =====
   {
     const midW = 24 * wScale * pulse;
     const g = ctx.createLinearGradient(0, -midW, 0, midW);
@@ -6314,7 +6368,6 @@ function drawLaser(){
     ctx.fillRect(0, -midW, L, midW * 2);
   }
 
-  // ===== 3. 核心白线 =====
   {
     const coreW = 7 * wScale * pulse;
     const g = ctx.createLinearGradient(0, -coreW, 0, coreW);
@@ -6325,7 +6378,6 @@ function drawLaser(){
     ctx.fillRect(0, -coreW, L, coreW * 2);
   }
 
-  // ===== 4. 能量流动条纹 =====
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, -30 * wScale, L, 60 * wScale);
@@ -6347,7 +6399,6 @@ function drawLaser(){
 
   ctx.restore();
 
-  // ===== 5. 发射端光球 =====
   ctx.save();
   ctx.globalAlpha = alpha;
   const startPulse = 0.9 + Math.sin(gameTime * 22) * 0.1;
@@ -6363,7 +6414,6 @@ function drawLaser(){
   ctx.fill();
   ctx.restore();
 
-  // ===== 6. 命中点光晕（每个被光束打到的敌人身上加爆闪） =====
   const cosA = Math.cos(angle);
   const sinA = Math.sin(angle);
   const beamHalf = 26 * wScale;
@@ -6917,34 +6967,26 @@ function drawLaserButton(){
   const cdRatio = laserCooldown / LASER_COOLDOWN_MAX;
   const ready = laserCooldown <= 0 && !laser.active;
   const active = laser.active;
-  const gold = player.laserChargeTimer > 0;
-  const mainColor = gold ? '#ffd24a' : '#88eeff';
+  const mainColor = '#88eeff';
   const R = b.r;
   const pulse = 0.5 + Math.sin(gameTime * 8) * 0.5;
 
   ctx.save();
 
   if(active || ready){
-    const color = active ? '255,255,255' : (gold ? '255,215,80' : '120,240,255');
+    const color = active ? '255,255,255' : '120,240,255';
     ctx.strokeStyle = 'rgba(' + color + ',' + (0.6 - pulse * 0.35) + ')';
     ctx.lineWidth = 4;
     ctx.beginPath(); ctx.arc(b.x, b.y, R + 6 + pulse * 6, 0, TAU); ctx.stroke();
   }
 
   const bgGrd = ctx.createRadialGradient(b.x - R*0.35, b.y - R*0.35, R*0.1, b.x, b.y, R);
-  if(gold){
-    bgGrd.addColorStop(0, '#8a6a20');
-    bgGrd.addColorStop(0.6, '#5a4414');
-    bgGrd.addColorStop(1, '#3a2c0c');
-  } else {
-    bgGrd.addColorStop(0, '#2a6a8a');
-    bgGrd.addColorStop(0.6, '#1a3e5a');
-    bgGrd.addColorStop(1, '#0e2438');
-  }
+  bgGrd.addColorStop(0, '#2a6a8a');
+  bgGrd.addColorStop(0.6, '#1a3e5a');
+  bgGrd.addColorStop(1, '#0e2438');
   ctx.fillStyle = bgGrd;
   ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
 
-  // 冷却扇形遮罩
   if(cdRatio > 0){
     const startAngle = -Math.PI/2 + TAU * (1 - cdRatio);
     const endAngle = -Math.PI/2 + TAU;
@@ -6956,13 +6998,12 @@ function drawLaserButton(){
     ctx.fill();
   }
 
-  // 持续中：环形倒计时
   if(active){
     const remainP = Math.max(0, 1 - laser.timer / laser.duration);
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = 5;
     ctx.beginPath(); ctx.arc(b.x, b.y, R + 2, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = gold ? '#ffd24a' : '#88eeff';
+    ctx.strokeStyle = '#88eeff';
     ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -6974,7 +7015,6 @@ function drawLaserButton(){
   ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
 
-  // 激光图标
   const iconColor = ready ? '#ffffff' : '#c8d8e0';
   ctx.save();
   ctx.translate(b.x, b.y);
@@ -6998,7 +7038,7 @@ function drawLaserButton(){
     drawUIText(label, b.x, b.y + R + 22, ready ? 'accent' : 'muted', { size: 20 });
   }
 
-  const label = gold ? '金色激光 (E)' : '激光 (E)';
+  const label = '激光 (E)';
   ctx.save();
   ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
   const tw = ctx.measureText(label).width;
@@ -7011,7 +7051,43 @@ function drawLaserButton(){
   ctx.restore();
 }
 
+
 // ================= HUD =================
+// ================= 战斗中：本场获得的货币显示 =================
+// 位置：猫咪头像下方
+function drawRunCurrency(){
+  if(!player) return;
+
+  const baseX = 22;
+  const startY = 102;
+  const lineH = 32;
+  const iconSize = 26;
+  const gapAfterIcon = 8;
+
+  // ---- 金币行 ----
+  const coinIcon = UI.assets['icon_coin'];
+  if(coinIcon){
+    ctx.drawImage(coinIcon, baseX, startY, iconSize, iconSize);
+  }
+  drawUIText('×' + runCoins, baseX + iconSize + gapAfterIcon,
+             startY + iconSize/2 + 1, 'title', {
+    size: 18, align: 'left', strokeWidth: 3,
+    glow: true, glowColor: 'rgba(255, 210, 74, 0.6)', glowSize: 6
+  });
+
+  // ---- 钻石行 ----
+  const y2 = startY + lineH;
+  const diaIcon = UI.assets['icon_diamond'];
+  if(diaIcon){
+    ctx.drawImage(diaIcon, baseX, y2, iconSize, iconSize);
+  }
+  drawUIText('×' + runDiamonds, baseX + iconSize + gapAfterIcon,
+             y2 + iconSize/2 + 1, 'body', {
+    size: 18, align: 'left', strokeWidth: 3,
+    glow: true, glowColor: 'rgba(136, 224, 255, 0.6)', glowSize: 6
+  });
+}
+
 function drawBuffTags(){
   const ids = Object.keys(player.buffLevels).filter(k => player.buffLevels[k] > 0);
   if(ids.length === 0) return;
@@ -7037,62 +7113,11 @@ function drawBuffTags(){
 }
 
 function drawActiveItems(){
+  // 目前没有需要显示的持续状态道具
+  // 后续若新增（比如双倍伤害药水），在这里 push
   const items = [];
-  if(player.laserChargeTimer > 0){
-    items.push({
-      iconId:'laserup', label:'激光充能', desc:'金色激光 · 伤害翻倍',
-      color:'#ffd24a', time: player.laserChargeTimer, max: 15
-    });
-  }
   if(items.length === 0) return;
-
-  const CW = 224, CH = 58, GAP = 8;
-  let y = 320;
-
-  for(const it of items){
-    const x = W - CW - 12;
-
-    rr(x, y, CW, CH, 10);
-    ctx.fillStyle = 'rgba(10, 18, 14, .88)';
-    ctx.fill();
-    ctx.strokeStyle = it.color;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.75;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    if(it.iconId){
-      drawBuffIcon(it.iconId, x + 28, y + CH/2 - 2, 30, it.color);
-    }
-
-    drawUIText(it.label, x + 52, y + 22, 'body', {
-      size: 18, align: 'left', strokeWidth: 4,
-      glow: true, glowColor: it.color, glowSize: 8
-    });
-
-    drawUIText(it.desc, x + 52, y + 44, 'muted', {
-      size: 16, align: 'left', strokeWidth: 3
-    });
-
-    if(it.time !== null){
-      drawUIText(it.time.toFixed(1) + 's', x + CW - 10, y + 22, 'accent', {
-        size: 18, align: 'right'
-      });
-
-      // 进度条
-      const barX = x + 10;
-      const barW = CW - 20;
-      const barY = y + CH - 7;
-      const barH = 3;
-      ctx.fillStyle = 'rgba(0,0,0,.55)';
-      ctx.fillRect(barX, barY, barW, barH);
-      const p = Math.max(0, Math.min(1, it.time / it.max));
-      ctx.fillStyle = it.color;
-      ctx.fillRect(barX, barY, barW * p, barH);
-    }
-
-    y += CH + GAP;
-  }
+  // （保留原有布局逻辑，等有 items 再加回来）
 }
 
 function drawSkillTip(){
@@ -7138,23 +7163,18 @@ function drawSkillTip(){
       lines.push({ k: '当前等级', v: 'Lv.' + lv + '（每级 +1 炸弹 +30 伤害）', hl: true });
     }
   } else if(skillTip.type === 'laser'){
-    const isGold = player.laserChargeTimer > 0;
-    title = isGold ? '金色激光' : '激光';
-    color = isGold ? '#ffd24a' : '#88eeff';
+    title = '激光';
+    color = '#88eeff';
     const dur = laser.duration;
-    const countLv = player.buffLevels.laser_count || 0;
     const powerLv = player.buffLevels.laserpower || 0;
-    const maxTargets = 1 + countLv + (isGold ? 1 : 0);
-    const dps = Math.round(player.laserDamage * 0.35 * (isGold ? 2 : 1));
+    const dps = Math.round(player.laserDamage * 0.35);
     const totalDmg = Math.round(dps * dur);
     lines.push({ k: '冷却', v: LASER_COOLDOWN_MAX + ' 秒' });
     lines.push({ k: '持续时间', v: dur.toFixed(1) + ' 秒' });
-    lines.push({ k: '触发', v: '自动锁定最近敌人 + 减速' });
-    lines.push({ k: '锁定数量', v: maxTargets + ' 个' + (isGold ? '（金色 +1）' : '') });
+    lines.push({ k: '触发', v: '朝正上方发射 + 穿透 + 减速' });
     lines.push({ k: '每秒伤害', v: dps + '' });
     lines.push({ k: '预计总伤', v: '约 ' + totalDmg + ' / 每个目标' });
     if(powerLv > 0) lines.push({ k: '激光强化', v: 'Lv.' + powerLv + '  伤害 +' + (powerLv * 45) + '%', hl: true });
-    if(countLv > 0) lines.push({ k: '激光分裂', v: 'Lv.' + countLv + '  锁定 +' + countLv + ' 个', hl: true });
   } else if(skillTip.type === 'missile'){
     title = '追踪导弹';
     color = '#ff8a3c';
@@ -7456,6 +7476,7 @@ function drawHUD(){
 
   // 血量：5 颗爱心，每颗 2 分（半心），共 10 滴
   drawHealthHearts(104, 54);
+  drawRunCurrency();
 
   // 波次信息底板（暂停按钮下方）
   const infoW = 170, infoH = 116;
@@ -8403,11 +8424,67 @@ function drawStageVictoryScreen(){
   }
 }
 
+// ================= 主菜单货币栏 =================
+function drawCurrencyBar(topY){
+  if(topY === undefined) topY = 18;
+  const h = 44;
+  const gap = 8;
+  const rightEdge = W - 14;
+
+  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
+
+  const coinText = String(currency.coins);
+  const diaText  = String(currency.diamonds);
+  const coinTextW = ctx.measureText(coinText).width;
+  const diaTextW  = ctx.measureText(diaText).width;
+
+  const iconSize = h - 8;
+  const coinBarW = iconSize + 6 + coinTextW + 22;
+  const diaBarW  = iconSize + 6 + diaTextW  + 22;
+
+  // 钻石在右，金币在左
+  const diaX  = rightEdge - diaBarW;
+  const coinX = diaX - gap - coinBarW;
+
+  drawOneCurrencyBar(coinX, topY, coinBarW, h, 'icon_coin',    coinText, '#ffd24a');
+  drawOneCurrencyBar(diaX,  topY, diaBarW,  h, 'icon_diamond', diaText,  '#88e0ff');
+}
+
+function drawOneCurrencyBar(x, y, w, h, iconKey, text, borderColor){
+  // 深色胶囊
+  rr(x, y, w, h, h/2);
+  const grd = ctx.createLinearGradient(x, y, x, y + h);
+  grd.addColorStop(0, 'rgba(22, 32, 42, 0.94)');
+  grd.addColorStop(1, 'rgba(8, 14, 20, 0.94)');
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 2;
+  rr(x, y, w, h, h/2);
+  ctx.stroke();
+
+  // 图标
+  const iconSize = h - 8;
+  const iconImg = UI.assets[iconKey];
+  if(iconImg){
+    ctx.drawImage(iconImg, x + 4, y + 4, iconSize, iconSize);
+  }
+
+  // 数字
+  drawUIText(text, x + w - 12, y + h/2 + 8, 'body', {
+    size: 22,
+    align: 'right',
+    strokeWidth: 2
+  });
+}
+
 // ================= 主菜单 =================
 function drawMainMenu(){
   drawAppBackground();
   drawCuteTitle(W/2, 118);
   drawUIText('末世鼠潮 · 猫咪反击战', W/2, 162, 'muted', { size: 22 });
+
 
   // 角色（猫 + 怪物）
   drawMenuCharacters();
@@ -8514,7 +8591,7 @@ function isEndlessUnlocked(){
 }
 function drawCatSelectScreen(){
   drawAppBackground();
-
+  drawCurrencyBar();
   drawAppTitle('选 择 你 的 猫 咪', W/2, 100, 42);
 
   ctx.textAlign = 'center';
@@ -8633,14 +8710,14 @@ function drawCatSelectScreen(){
   }
 
   // 按钮
-  drawAppButton(CATCHOOSE_STAGE_BTN, '开 始 闯 关', '#7fe0a0', '#289858', { fontSize: 28, pulse: true });
+  drawAppButton(CATCHOOSE_STAGE_BTN, '开 始 闯 关', '#7fe0a0', '#289858', { fontSize: 30, pulse: true });
 
   // 无尽模式：通过第 1 关后才显示
   if(isEndlessUnlocked()){
-    drawAppButton(CATCHOOSE_ENDLESS_BTN, '无 尽 模 式', '#ffd24a', '#c87820', { fontSize: 26 });
+    drawAppButton(CATCHOOSE_ENDLESS_BTN, '无 尽 模 式', '#ffd24a', '#c87820', { fontSize: 30 });
   }
 
-  drawAppButton(CATCHOOSE_BACK_BTN, '返 回', '#7fb8ff', '#3878b8', { fontSize: 22 });
+  drawAppButton(CATCHOOSE_BACK_BTN, '返 回', '#7fb8ff', '#3878b8', { fontSize: 30 });
 }
 
 // ================= 游戏说明 =================
@@ -10520,6 +10597,7 @@ function loop(now){
 loadStageProgress();
 loadLeaderboard();
 loadCatPref();
+loadCurrency();
 gameTime = 0;
 state = 'boot';
 requestAnimationFrame(loop);
