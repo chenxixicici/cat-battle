@@ -35,18 +35,17 @@ const PAUSE_BTN  = { x: W - 60, y: 60, r: 50 };
 const MISSILE_BTN = { x: W - 90, y: H - 110, r: 54 };
 const LASER_BTN   = { x: W - 90, y: H - 300, r: 54 };
 const AUTO_BTN    = { x: W - 90, y: H - 430, w: 76, h: 36 };
-const RESUME_BTN       = { x: W/2, y: 690, w: 280, h: 68 };
-const PAUSE_LB_BTN     = { x: W/2 - 110, y: 790, w: 200, h: 58 };
-const PAUSE_HELP_BTN   = { x: W/2 + 110, y: 790, w: 200, h: 58 };
-const RESTART_BTN      = { x: W/2, y: 880, w: 280, h: 58 };
+// 暂停界面按钮（在 drawPauseOverlay 里动态计算，这里存一份供点击检测）
+const RESUME_BTN       = { x: W/2, y: 0, w: 220, h: 60 };
+const PAUSE_LB_BTN     = { x: W/2, y: 0, w: 220, h: 56 };
+const RESTART_BTN      = { x: W/2, y: 0, w: 220, h: 56 };
 
-const DEAD_LB_BTN      = { x: W/2 - 95, y: H - 150, w: 170, h: 64 };
-const DEAD_RESTART_BTN = { x: W/2 + 95, y: H - 150, w: 170, h: 64 };
+// 死亡界面按钮已改为弹窗内联，不需要全局常量
 const LB_CLOSE_BTN     = { x: W/2, y: H - 80, w: 240, h: 62 };
 const CONFIRM_NO_BTN  = { x: W/2 - 90, y: H/2 + 70, w: 160, h: 60 };  // 左边：取消
 const CONFIRM_YES_BTN = { x: W/2 + 90, y: H/2 + 70, w: 160, h: 60 };  // 右边：确认
 const AVATAR      = { x: 50, y: 50, r: 36 };
-const HELP_QUICK_BTN = { x: 50, y: 152, r: 32 };
+const HELP_QUICK_BTN = { x: 50, y: 168, r: 48 };
 
 // 主菜单按钮
 const MENU_START_BTN = { x: W/2, y: 880, w: 400, h: 96 };
@@ -605,15 +604,15 @@ function drawDamageStats(x, y, compact){
   let total = 0;
   for(const k in runDamageStats) total += runDamageStats[k];
 
-  const tSize  = compact ? 17 : 26;
+  const tSize  = compact ? 17 : 28;
   const sSize  = compact ? 12 : 16;
-  const nSize  = compact ? 13 : 19;
-  const dSize  = compact ? 12 : 17;
-  const fSize  = compact ? 13 : 19;
-  const rowH   = compact ? 26 : 40;
-  const barW   = compact ? 260 : 380;
-  const barH   = compact ? 8  : 13;
-  const nameW  = compact ? 64 : 100;
+  const nSize  = compact ? 13 : 20;
+  const dSize  = compact ? 12 : 18;
+  const fSize  = compact ? 13 : 20;
+  const rowH   = compact ? 26 : 44;
+  const barW   = compact ? 260 : 400;
+  const barH   = compact ? 8  : 14;
+  const nameW  = compact ? 64 : 104;
 
   ctx.textAlign = 'center';
   ctx.font = 'bold ' + tSize + 'px "Microsoft YaHei",sans-serif';
@@ -1573,19 +1572,21 @@ function onPointerDown(e){
 
   // ============ 胜利界面 ============
   if(state === 'victory'){
-    const cb = VICTORY_CONTINUE_BTN;
-    if(p.x >= cb.x - cb.w/2 && p.x <= cb.x + cb.w/2 &&
-       p.y >= cb.y - cb.h/2 && p.y <= cb.y + cb.h/2){
-      // 继续战斗：解除上限，回到游戏
+    const boxH2 = 660;
+    const boxY2 = (H - boxH2) / 2;
+
+    // 继续战斗
+    if(p.x >= W/2 - 150 && p.x <= W/2 + 150 &&
+       p.y >= boxY2 + boxH2 - 120 - 31 && p.y <= boxY2 + boxH2 - 120 + 31){
       waveCapDisabled = true;
       waveBreakTimer = 1.6;
       state = 'playing';
       last = performance.now();
       return;
     }
-    const eb = VICTORY_END_BTN;
-    if(p.x >= eb.x - eb.w/2 && p.x <= eb.x + eb.w/2 &&
-       p.y >= eb.y - eb.h/2 && p.y <= eb.y + eb.h/2){
+    // 结算并返回主界面
+    if(p.x >= W/2 - 150 && p.x <= W/2 + 150 &&
+       p.y >= boxY2 + boxH2 - 52 - 28 && p.y <= boxY2 + boxH2 - 52 + 28){
       returnToMenu();
       return;
     }
@@ -1593,20 +1594,28 @@ function onPointerDown(e){
   }
 
   if(state === 'dead'){
-    // 排行榜按钮
-    const lb = DEAD_LB_BTN;
-    if(p.x >= lb.x - lb.w/2 && p.x <= lb.x + lb.w/2 &&
-       p.y >= lb.y - lb.h/2 && p.y <= lb.y + lb.h/2){
-      lbFrom = 'dead';
-      state = 'leaderboard';
-      lbBuffPopup = -1;
-      lbPopupCloseRect = null;
+    // ★ 红X：返回主菜单
+    if(deadCloseRect &&
+       p.x >= deadCloseRect.x && p.x <= deadCloseRect.x + deadCloseRect.w &&
+       p.y >= deadCloseRect.y && p.y <= deadCloseRect.y + deadCloseRect.h){
+      returnToMenu();
       return;
     }
-    // 重新开始按钮
-    const rb = DEAD_RESTART_BTN;
-    if(p.x >= rb.x - rb.w/2 && p.x <= rb.x + rb.w/2 &&
-       p.y >= rb.y - rb.h/2 && p.y <= rb.y + rb.h/2){
+
+    // 按钮位置（跟 drawDeadScreen 内部保持一致）
+    const boxH2 = 700;
+    const boxY2 = (H - boxH2) / 2;
+    const btnY  = boxY2 + boxH2 - 90;
+
+    // ★ 退出游戏：返回主菜单
+    if(p.x >= W/2 - 105 - 90 && p.x <= W/2 - 105 + 90 &&
+       p.y >= btnY - 32 && p.y <= btnY + 32){
+      returnToMenu();
+      return;
+    }
+    // 重新开始
+    if(p.x >= W/2 + 105 - 90 && p.x <= W/2 + 105 + 90 &&
+       p.y >= btnY - 32 && p.y <= btnY + 32){
       reset();
       return;
     }
@@ -1648,6 +1657,15 @@ function onPointerDown(e){
     return;
   }
   if(state === 'paused'){
+    // ★ 红X：继续游戏
+    if(pauseCloseRect &&
+       p.x >= pauseCloseRect.x && p.x <= pauseCloseRect.x + pauseCloseRect.w &&
+       p.y >= pauseCloseRect.y && p.y <= pauseCloseRect.y + pauseCloseRect.h){
+      state = 'playing';
+      last = performance.now();
+      return;
+    }
+
     // 继续
     const rs = RESUME_BTN;
     if(p.x >= rs.x - rs.w/2 && p.x <= rs.x + rs.w/2 &&
@@ -1666,14 +1684,7 @@ function onPointerDown(e){
       lbPopupCloseRect = null;
       return;
     }
-    // 玩法说明
-    const hb2 = PAUSE_HELP_BTN;
-    if(p.x >= hb2.x - hb2.w/2 && p.x <= hb2.x + hb2.w/2 &&
-       p.y >= hb2.y - hb2.h/2 && p.y <= hb2.y + hb2.h/2){
-      helpFrom = 'paused';
-      state = 'help';
-      return;
-    }
+
     // 退出游戏
     const r2 = RESTART_BTN;
     if(p.x >= r2.x - r2.w/2 && p.x <= r2.x + r2.w/2 &&
@@ -1684,6 +1695,14 @@ function onPointerDown(e){
     return;
   }
   if(state === 'confirm'){
+    // ★ 红X：取消，回到暂停
+    if(confirmCloseRect &&
+       p.x >= confirmCloseRect.x && p.x <= confirmCloseRect.x + confirmCloseRect.w &&
+       p.y >= confirmCloseRect.y && p.y <= confirmCloseRect.y + confirmCloseRect.h){
+      state = 'paused';
+      return;
+    }
+
     const yes = CONFIRM_YES_BTN;
     const no  = CONFIRM_NO_BTN;
     if(p.x >= yes.x - yes.w/2 && p.x <= yes.x + yes.w/2 &&
@@ -2383,6 +2402,10 @@ let nextEnemyId = 1;
 let autoCast = false;
 let autoCastAnim = 0;
 let lbFrom = 'dead';
+// 弹窗红X的点击热区
+let pauseCloseRect   = null;
+let deadCloseRect    = null;
+let confirmCloseRect = null;
 let last = performance.now();
 
 let waveTotal = 0;
@@ -5568,16 +5591,8 @@ function drawCatBroSelect(){
   ctx.fillStyle = tg;
   ctx.fillText(joinTitle, W/2, 140);
 
-  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-  ctx.strokeText('选择 1~2 个技能传授给它', W/2, 190);
-  ctx.fillStyle = '#dfe9e3';
-  ctx.fillText('选择 1~2 个技能传授给它', W/2, 190);
-
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = '#a0d8b8';
-  ctx.fillText('已选：' + catBroSelectedSkills.length + ' / 2', W/2, 222);
+  drawUIText('选择 1~2 个技能传授给它', W/2, 190, 'body', { size: 22 });
+  drawUIText('已选：' + catBroSelectedSkills.length + ' / 2', W/2, 224, 'success', { size: 19 });
 
   const skills = ['can','orb','laser','missile','airstrike'].filter(s =>
     unlockedWeapons[s] && catBroTakenSkills.indexOf(s) < 0
@@ -5624,17 +5639,17 @@ function drawCatBroSelect(){
     drawBuffIcon(info.icon, icx, icy, 48, info.color);
 
     ctx.textAlign = 'center';
-    ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
+    ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
     ctx.fillStyle = info.color;
-    ctx.fillText(info.name, icx, y + 140);
+    ctx.fillText(info.name, icx, y + 142);
 
-    ctx.font = '13px "Microsoft YaHei",sans-serif';
+    ctx.font = '16px "Microsoft YaHei",sans-serif';
     ctx.fillStyle = '#4a5a52';
     const lines = wrapTextSimple(info.desc, CW - 20);
-    let ly = y + 165;
+    let ly = y + 172;
     for(const ln of lines){
       ctx.fillText(ln, icx, ly);
-      ly += 18;
+      ly += 22;
     }
 
     if(selected){
@@ -6044,80 +6059,20 @@ function drawAvatar(){
 
 function drawHelpQuickBtn(){
   const b = HELP_QUICK_BTN;
-  const cx = b.x, cy = b.y, R = b.r;
+  const cx = b.x, cy = b.y;
 
-  const pulse = 0.5 + Math.sin(gameTime * 2.5) * 0.5;
+  // ★ 跟暂停按钮同尺寸（PAUSE_BTN.r * 1.9）
+  const btnSize = PAUSE_BTN.r * 1.9;
+  UI.drawIcon(ctx, 'icon_settings', cx - btnSize/2, cy - btnSize/2, btnSize);
 
-  // ===== 外发光（脉动，吸引注意） =====
-  ctx.save();
-  ctx.shadowColor = '#7fb8ff';
-  ctx.shadowBlur = 16 + pulse * 12;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, TAU);
-  ctx.fillStyle = 'rgba(60, 120, 200, 0.9)';
-  ctx.fill();
-  ctx.restore();
-
-  // ===== 圆底：蓝径向渐变 =====
-  const grd = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
-  grd.addColorStop(0, '#5a9ad8');
-  grd.addColorStop(0.6, '#2a5a90');
-  grd.addColorStop(1, '#163a60');
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, TAU);
-  ctx.fillStyle = grd;
-  ctx.fill();
-
-  // ===== 内环高光 =====
-  ctx.strokeStyle = 'rgba(200, 230, 255, 0.4)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R - 4, 0, TAU);
-  ctx.stroke();
-
-  // ===== 外圈双线边 =====
-  ctx.strokeStyle = '#a8d8ff';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, TAU);
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R + 3, 0, TAU);
-  ctx.stroke();
-
-  // ===== 顶部高光弧 =====
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R - 2, Math.PI * 1.1, Math.PI * 1.9);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-  ctx.restore();
-
-  // ===== 中间齿轮图标（素材） =====
-  const iconSz = R * 1.35;
-  UI.drawIcon(ctx, 'icon_settings', cx - iconSz/2, cy - iconSz/2, iconSz);
-
-  // ===== 下方文字 "玩法说明" =====
-  const labelText = '玩法说明';
-  const labelY = cy + R + 26;
-
-  ctx.save();
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(labelText).width;
-  rr(cx - tw/2 - 12, labelY - 15, tw + 24, 26, 8);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-  ctx.fill();
-  ctx.strokeStyle = '#7fb8ff';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-
-  drawUIText(labelText, cx, labelY + 5, 'body', { size: 18, glow: true, glowColor: 'rgba(120, 180, 255, 0.7)' });
+  // 下方"玩法说明"标签
+  const labelY = cy + btnSize/2 + 18;
+  drawUIText('玩法说明', cx, labelY, 'body', {
+    size: 17,
+    glow: true,
+    glowColor: 'rgba(120, 180, 255, 0.7)',
+    glowSize: 10
+  });
 }
 
 function drawAutoCastBtn(){
@@ -6261,23 +6216,35 @@ function drawJoystick(j, base, color, label){
   ctx.restore();
 }
 
+// ================= 通用图标按钮 =================
+// 圆角方形底框 + 居中图标
+//   cx, cy   中心点
+//   size     按钮整体尺寸（正方形边长）
+//   iconKey  图标素材的 key
+//   opts: {
+//     frameKey   底框素材（默认 frame_blue）
+//     iconRatio  图标占按钮的比例（默认 0.58）
+//   }
+function drawIconButton(cx, cy, size, iconKey, opts){
+  opts = opts || {};
+  const frameKey  = opts.frameKey  || 'frame_blue';
+  const iconRatio = opts.iconRatio !== undefined ? opts.iconRatio : 0.58;
+
+  // 底框
+  UI.drawFrame(ctx, cx - size/2, cy - size/2, size, size, frameKey);
+
+  // 图标
+  const iconSize = size * iconRatio;
+  UI.drawIcon(ctx, iconKey, cx - iconSize/2, cy - iconSize/2, iconSize);
+}
+
 // ================= 按钮 =================
 function drawPauseButton(){
   const x = PAUSE_BTN.x, y = PAUSE_BTN.y, r = PAUSE_BTN.r;
 
-  // 外发光
-  ctx.save();
-  ctx.shadowColor = 'rgba(140, 240, 180, 0.5)';
-  ctx.shadowBlur = 10;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fillStyle = 'rgba(30, 46, 38, 0.92)';
-  ctx.fill();
-  ctx.restore();
-
-  // ★ 图标素材
-  const iconSize = r * 2 + 8;
-  UI.drawIcon(ctx, 'icon_pause', x - iconSize / 2, y - iconSize / 2, iconSize);
+  // icon_pause 素材自带圆角方形底，直接放大当按钮
+  const btnSize = r * 1.9;
+  UI.drawIcon(ctx, 'icon_pause', x - btnSize/2, y - btnSize/2, btnSize);
 }
 
 function drawMissileButton(){
@@ -6712,11 +6679,11 @@ function drawSkillTip(){
     if(cChgLv > 0) lines.push({ k: '快速装填', v: 'Lv.' + cChgLv + '  充能 -' + Math.round(cChgLv * 28) + '%', hl: true });
   }
 
-  const panelW = 380;
-  const paddingX = 20;
-  const lineH = 27;
-  const titleH = 46;
-  const panelH = 14 + titleH + lines.length * lineH + 22;
+  const panelW = 440;
+  const paddingX = 26;
+  const lineH = 32;
+  const titleH = 54;
+  const panelH = 16 + titleH + lines.length * lineH + 26;
   const px = (W - panelW) / 2;
   const py = H / 2 - panelH / 2;
 
@@ -6743,9 +6710,9 @@ function drawSkillTip(){
 
   // 标题
   ctx.textAlign = 'left';
-  ctx.font = 'bold 23px "Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 27px "Microsoft YaHei",sans-serif';
   ctx.fillStyle = color;
-  ctx.fillText(title, px + paddingX, py + 33);
+  ctx.fillText(title, px + paddingX, py + 38);
 
   // 分隔线
   ctx.strokeStyle = 'rgba(140,220,180,0.3)';
@@ -6756,26 +6723,26 @@ function drawSkillTip(){
   ctx.stroke();
 
   // 内容
-  let cy = py + titleH + 10;
-  const keyW = 104;
+  let cy = py + titleH + 14;
+  const keyW = 118;
   for(const ln of lines){
     ctx.textAlign = 'left';
-    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = ln.hl ? color : 'rgba(160,190,175,0.85)';
-    ctx.fillText(ln.k, px + paddingX, cy + 17);
+    ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
+    ctx.fillStyle = ln.hl ? color : 'rgba(180,210,195,0.9)';
+    ctx.fillText(ln.k, px + paddingX, cy + 20);
 
-    ctx.font = '15px "Microsoft YaHei",sans-serif';
+    ctx.font = '17px "Microsoft YaHei",sans-serif';
     ctx.fillStyle = ln.hl ? '#ffe080' : '#dfe9e3';
-    ctx.fillText(ln.v, px + paddingX + keyW, cy + 17);
+    ctx.fillText(ln.v, px + paddingX + keyW, cy + 20);
 
     cy += lineH;
   }
 
   // 关闭提示
   ctx.textAlign = 'center';
-  ctx.font = '12px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(140,160,150,0.6)';
-  ctx.fillText('点击任意位置关闭', px + panelW / 2, py + panelH - 8);
+  ctx.font = '14px "Microsoft YaHei",sans-serif';
+  ctx.fillStyle = 'rgba(160,185,175,0.7)';
+  ctx.fillText('点击任意位置关闭', px + panelW / 2, py + panelH - 10);
 
   ctx.restore();
 }
@@ -6995,22 +6962,18 @@ function drawHUD(){
   drawHealthHearts(104, 54);
 
   // 波次信息底板（暂停按钮下方）
-  const infoW = 150, infoH = 104;
+  const infoW = 170, infoH = 116;
   const infoX = W - infoW - 12;
   const infoY = 130;
-  ctx.fillStyle = 'rgba(0,0,0,0.72)';
-  ctx.fillRect(infoX, infoY, infoW, infoH);
-  ctx.strokeStyle = 'rgba(140,220,180,0.55)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(infoX, infoY, infoW, infoH);
+  UI.drawPanel(ctx, infoX, infoY, infoW, infoH, 'panel_bg');
 
   // 文字居中，避免左侧留空
   ctx.textAlign = 'center';
   const infoCx = infoX + infoW / 2;
 
-  const line1Y = infoY + 34;
-  const line2Y = infoY + 64;
-  const line3Y = infoY + 92;
+  const line1Y = infoY + 38;
+  const line2Y = infoY + 72;
+  const line3Y = infoY + 102;
 
   const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
 
@@ -7045,22 +7008,16 @@ function drawHUD(){
   drawHelpQuickBtn();
 
   if(banner){
-    // 位置：屏幕中上部（避开右上角信息板）
     const bannerY = H * 0.34;
-
     const age = banner.age || 0;
     const life = banner.life;
 
-    // 入场（0~0.35s）：从 0.6 弹到 1.0
     const enterP = Math.min(1, age / 0.35);
     const enterEase = 1 - Math.pow(1 - enterP, 3);
     const scale = 0.6 + enterEase * 0.4;
 
-    // 淡出（最后 0.4s）
     const fadeP = Math.min(1, life / 0.4);
     const alpha = Math.min(enterP, fadeP);
-
-    // 轻微上下漂浮
     const floatY = Math.sin(age * 4) * 4;
 
     ctx.save();
@@ -7068,60 +7025,16 @@ function drawHUD(){
     ctx.translate(W / 2, bannerY + floatY);
     ctx.scale(scale, scale);
 
-    // 文字尺寸
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 40px "Microsoft YaHei",sans-serif';
-
-    const tw = ctx.measureText(banner.text).width;
-    const boxW = tw + 70;
-    const boxH = 84;
-
-    // 底衬：深色圆角 + 绿色描边 + 外发光
+    // 用素材横幅（青色）
     ctx.save();
-    ctx.shadowColor = 'rgba(140, 240, 180, 0.85)';
-    ctx.shadowBlur = 18;
-    rr(-boxW/2, -boxH/2, boxW, boxH, 18);
-    const bgGrd = ctx.createLinearGradient(0, -boxH/2, 0, boxH/2);
-    bgGrd.addColorStop(0, 'rgba(10, 24, 16, 0.94)');
-    bgGrd.addColorStop(1, 'rgba(4, 12, 8, 0.94)');
-    ctx.fillStyle = bgGrd;
-    ctx.fill();
+    ctx.font = 'bold 34px "Microsoft YaHei",sans-serif';
+    const textW2 = ctx.measureText(banner.text).width;
     ctx.restore();
+    const bw2 = Math.max(400, textW2 + 140);
+    const bh2 = 100;
 
-    rr(-boxW/2, -boxH/2, boxW, boxH, 18);
-    ctx.strokeStyle = 'rgba(140, 240, 180, 0.9)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    UI.drawBanner(ctx, -bw2/2, -bh2/2, bw2, bh2, banner.text, 'banner_main', 34);
 
-    // 顶部高光
-    ctx.save();
-    rr(-boxW/2, -boxH/2, boxW, boxH, 18);
-    ctx.clip();
-    const hl = ctx.createLinearGradient(0, -boxH/2, 0, -boxH/2 + 12);
-    hl.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
-    hl.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = hl;
-    ctx.fillRect(-boxW/2, -boxH/2, boxW, 12);
-    ctx.restore();
-
-    // 文字：深色描边 + 亮绿填充 + 阴影
-    ctx.save();
-    ctx.shadowColor = 'rgba(140, 240, 180, 0.9)';
-    ctx.shadowBlur = 10;
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
-    ctx.strokeText(banner.text, 0, 0);
-    ctx.restore();
-
-    const txtGrd = ctx.createLinearGradient(0, -22, 0, 22);
-    txtGrd.addColorStop(0, '#f0fff4');
-    txtGrd.addColorStop(0.5, '#a8f0c0');
-    txtGrd.addColorStop(1, '#5cd88a');
-    ctx.fillStyle = txtGrd;
-    ctx.fillText(banner.text, 0, 0);
-
-    ctx.textBaseline = 'alphabetic';
     ctx.restore();
   }
 }
@@ -7617,6 +7530,55 @@ function drawAppTitle(text, cx, cy, size){
     glowSize: 16
   });
 }
+// ================= 通用弹窗面板 =================
+// 结构：紫色胶囊条（标题）+ 深灰主体 + 右上角红X
+// 返回：{ closeRect } 供点击检测
+function drawDialogPanel(x, y, w, h, title, opts){
+  opts = opts || {};
+  const titleH      = opts.titleH      !== undefined ? opts.titleH      : 76;
+  const closeSize   = opts.closeSize   !== undefined ? opts.closeSize   : 56;
+  const titlePadX   = opts.titlePadX   !== undefined ? opts.titlePadX   : 10;
+  const titleSize   = opts.titleSize   !== undefined ? opts.titleSize   : 30;
+  const noClose     = opts.noClose === true;
+
+  // 1. 主体从紫条中线下方开始画
+  const bodyTop = y + titleH * 0.50;
+  UI.drawDialogBody(ctx, x, bodyTop, w, h - titleH * 0.50);
+
+  // 2. 紫条压在主体顶部
+  const barX = x + titlePadX;
+  const barW = w - titlePadX * 2;
+  const barY = y;
+  UI.drawTitleBar(ctx, barX, barY, barW, titleH);
+
+  // 3. 标题文字：紫条几何中心 + 纵向基线修正
+  const titleCx = barX + barW / 2;
+  const titleCy = barY + titleH / 2 + titleSize * 0.35;
+  drawUIText(title, titleCx, titleCy, 'body', {
+    size: titleSize,
+    strokeWidth: Math.max(3, titleSize * 0.14)
+  });
+
+  // 4. 红X（可选）
+  if(noClose) return { closeRect: null };
+
+  const closeCx = barX + barW - titleH / 2 - 14;
+  const closeCy = barY + titleH / 2 + 2;
+  UI.drawIcon(ctx, 'btn_close',
+              closeCx - closeSize / 2,
+              closeCy - closeSize / 2,
+              closeSize);
+
+  return {
+    closeRect: {
+      x: closeCx - closeSize / 2,
+      y: closeCy - closeSize / 2,
+      w: closeSize,
+      h: closeSize
+    }
+  };
+}
+
 
 // ================= 主菜单角色 =================
 // 主菜单单角色绘制
@@ -8121,50 +8083,47 @@ function drawStar(cx, cy, r, color){
 function drawVictoryScreen(){
   drawAppOverlay(0.88);
 
-  const grd = ctx.createRadialGradient(W/2, 300, 0, W/2, 300, 420);
-  grd.addColorStop(0, 'rgba(255, 220, 120, 0.25)');
-  grd.addColorStop(1, 'rgba(255, 220, 120, 0)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, W, H);
+  const boxW = W - 60;
+  const boxH = 660;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2;
 
-  ctx.textAlign = 'center';
+  // 无 X 关闭
+  drawDialogPanel(boxX, boxY, boxW, boxH, '胜 利 !', {
+    titleH: 80, titleSize: 34, noClose: true
+  });
 
-  for(let i = 0; i < 8; i++){
-    const a = gameTime * 1.5 + i * TAU / 8;
-    const sx = W/2 + Math.cos(a) * 250;
-    const sy = 150 + Math.sin(a) * 55;
-    const sz = 8 + Math.sin(gameTime * 3 + i) * 4;
-    drawStar(sx, sy, sz, 'rgba(255, 220, 120, ' + (0.6 + 0.4 * Math.sin(gameTime * 4 + i)) + ')');
-  }
-
-  drawAppTitle('胜 利 !', W/2, 165, 72);
-
+  // 通关文案
   drawUITextRich([
     { text: '你已通关全部 ' },
     { text: String(MAX_WAVE), colorKey: 'accent', gold: true },
     { text: ' 波！' }
-  ], W/2, 215, { size: 24 });
+  ], W/2, boxY + 130, { size: 26 });
 
+  // 存活 · 得分
   drawUITextRich([
     { text: '存活至第 ' },
     { text: String(wave),  colorKey: 'accent', gold: true },
     { text: ' 波  ·  得分 ' },
     { text: String(score), colorKey: 'accent', gold: true }
-  ], W/2, 248, { size: 18 });
-  const statsBottom = drawDamageStats(W/2, 290, false);
+  ], W/2, boxY + 176, { size: 20 });
 
-  const tipY = Math.max(statsBottom + 45, 720);
-  drawUIText('要继续挑战无尽模式吗？', W/2, tipY, 'body', { size: 18 });
+  // 伤害统计
+  drawDamageStats(W/2, boxY + 220, true);
 
-  const cb = VICTORY_CONTINUE_BTN;
-  cb.y = tipY + 62;
-  drawAppButton(cb, '继 续 战 斗', '#7fe0a0', '#289858', { fontSize: 30 });
+  // 提问
+  drawUIText('要继续挑战无尽模式吗？', W/2, boxY + boxH - 190, 'body', { size: 20 });
 
-  const eb = VICTORY_END_BTN;
-  eb.y = cb.y + 120;
-  drawAppButton(eb, '结算并返回主界面', '#ffb84a', '#c87820', { fontSize: 26 });
+  // 两个按钮
+  drawAppButton(
+    { x: W/2, y: boxY + boxH - 120, w: 300, h: 62 },
+    '继 续 战 斗', '#7fe0a0', '#289858', { fontSize: 24 }
+  );
+  drawAppButton(
+    { x: W/2, y: boxY + boxH - 52, w: 300, h: 56 },
+    '结算并返回主界面', '#ffb84a', '#c87820', { fontSize: 20 }
+  );
 }
-
 function returnToMenu(){
   recordRun();
   clearProgress();
@@ -8184,60 +8143,98 @@ function returnToMenu(){
 
 // ================= 暂停 =================
 function drawConfirmRestart(){
-  // 全屏遮罩
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.fillRect(0, 0, W, H);
 
-  // 面板尺寸
-  const boxW = 480, boxH = 340;
-  const boxX = W/2 - boxW/2, boxY = H/2 - boxH/2 - 40;
+  const boxW = 520;
+  const boxH = 400;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2 - 30;
 
-  UI.drawPanel(ctx, boxX, boxY, boxW, boxH, 'panel_bg');
+  const info = drawDialogPanel(boxX, boxY, boxW, boxH, '确认退出', {
+    titleH: 72, closeSize: 54, titleSize: 30
+  });
+  confirmCloseRect = info.closeRect;
 
-  // 内容内边距
-  const PAD = 44;
+  drawUIText('本局将结算并返回主菜单', W/2, boxY + 140, 'body', { size: 20 });
 
-  // 标题
-  drawUIText('确认退出游戏？', W/2, boxY + 78, 'danger', { size: 36 });
-
-  // 副标题
-  drawUIText('本局将结算并返回主菜单', W/2, boxY + 132, 'body', { size: 20 });
-
-  // 数值行
   drawUITextRich([
     { text: '第 ' },
     { text: String(Math.max(1, wave)), colorKey: 'accent', gold: true },
     { text: ' 波  ·  得分 ' },
     { text: String(score),             colorKey: 'accent', gold: true }
-  ], W/2, boxY + 172, { size: 22 });
+  ], W/2, boxY + 188, { size: 22 });
 
-  // 提示
-  drawUIText('此操作不可撤销', W/2, boxY + 212, 'muted', { size: 16 });
+  drawUIText('此操作不可撤销', W/2, boxY + 236, 'muted', { size: 16 });
 
-  // 底部按钮（直接复用全局常量，跟点击检测共用坐标）
-  drawAppButton(CONFIRM_NO_BTN,  '取 消', '#7fb8ff', '#3878b8', { fontSize: 24 });
-  drawAppButton(CONFIRM_YES_BTN, '确 认', '#ff8fb0', '#c84870', { fontSize: 24 });
+  const btnW = 160, btnH = 60;
+  const btnY = boxY + boxH - 60;
+  const gap  = 20;
+
+  drawAppButton(
+    { x: W/2 - btnW/2 - gap/2, y: btnY, w: btnW, h: btnH },
+    '取 消', '#7fb8ff', '#3878b8', { fontSize: 24 }
+  );
+  drawAppButton(
+    { x: W/2 + btnW/2 + gap/2, y: btnY, w: btnW, h: btnH },
+    '确 认', '#ff8fb0', '#c84870', { fontSize: 24 }
+  );
 }
 function drawPauseOverlay(){
   drawAppOverlay(0.85);
 
-  drawAppTitle('游 戏 暂 停', W/2, 110, 48);
+  const boxW = W - 60;
+  const boxH = 560;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2;
+
+  const info = drawDialogPanel(boxX, boxY, boxW, boxH, '游 戏 暂 停', {
+    titleH: 76, closeSize: 56, titleSize: 32
+  });
+  pauseCloseRect = info.closeRect;
+
+  // ===== 波次·得分：胶囊底 =====
+  const pillW = 340;
+  const pillH = 68;
+  const pillX = W/2 - pillW/2;
+  const pillY = boxY + 130;
+
+  rr(pillX, pillY, pillW, pillH, pillH/2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.30)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(160, 200, 230, 0.40)';
+  ctx.lineWidth = 1.5;
+  rr(pillX, pillY, pillW, pillH, pillH/2);
+  ctx.stroke();
 
   drawUITextRich([
     { text: '第 ' },
     { text: String(Math.max(1, wave)), colorKey: 'accent', gold: true },
     { text: ' 波  ·  得分 ' },
     { text: String(score),             colorKey: 'accent', gold: true }
-  ], W/2, 152, { size: 20 });
+  ], W/2, pillY + pillH/2 + 8, { size: 24 });
 
-  drawDamageStats(W / 2, 200, false);
+  // ===== 按钮（写回全局常量，绘制/点击同步） =====
+  RESUME_BTN.x = W/2;
+  RESUME_BTN.y = boxY + 274;
+  RESUME_BTN.w = 260;
+  RESUME_BTN.h = 68;
 
-  drawAppButton(RESUME_BTN,     '继 续',     '#7fe0a0', '#289858', { fontSize: 30 });
-  drawAppButton(PAUSE_LB_BTN,   '历史战绩',  '#ffd24a', '#c87820', { fontSize: 22 });
-  drawAppButton(PAUSE_HELP_BTN, '玩法说明',  '#7fb8ff', '#3878b8', { fontSize: 22 });
-  drawAppButton(RESTART_BTN,    '退出游戏',  '#ff8fb0', '#c84870', { fontSize: 22 });
+  PAUSE_LB_BTN.x = W/2;
+  PAUSE_LB_BTN.y = boxY + 371;
+  PAUSE_LB_BTN.w = 260;
+  PAUSE_LB_BTN.h = 62;
 
-  drawUIText('按 P 或 Esc 也可继续', W/2, H - 40, 'muted', { size: 14 });
+  RESTART_BTN.x = W/2;
+  RESTART_BTN.y = boxY + 461;
+  RESTART_BTN.w = 260;
+  RESTART_BTN.h = 62;
+
+  drawAppButton(RESUME_BTN,   '继 续',    '#7fe0a0', '#289858', { fontSize: 28 });
+  drawAppButton(PAUSE_LB_BTN, '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });
+  drawAppButton(RESTART_BTN,  '退出游戏', '#ff8fb0', '#c84870', { fontSize: 24 });
+
+  drawUIText('按 P 或 Esc 也可继续', W/2, boxY + boxH - 24, 'muted', { size: 14 });
 }
 
 // ================= Buff 选择 =================
@@ -8262,54 +8259,34 @@ function drawBuffSelect(){
 
   // ===== 面板尺寸 =====
   const panelPad = 30;
-  const headerH = 150;
+  const headerH = 175;
   const panelW = panelTotalW + panelPad * 2;
-  const panelH = headerH + CH + (hasUnlockCard ? 170 : 80);
+  const panelH = headerH + CH + (hasUnlockCard ? 190 : 100);
   const panelX = (W - panelW) / 2;
   const panelY = (H - panelH) / 2;
 
-  // ===== 背景面板（新素材） =====
-  UI.drawPanel(ctx, panelX, panelY, panelW, panelH, 'panel_bg');
+  // ===== 紫条 + 深灰主体（无 X） =====
+  drawDialogPanel(panelX, panelY, panelW, panelH, '', {
+    titleH: 76, noClose: true
+  });
 
-  // ===== 标题区 =====
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
+  // ===== 标题（紫条上写文字） =====
   const titleText = isSecondPick ? '✨ 暴击触发！ ✨' : ('第 ' + wave + ' 波清除');
-  const titleSize = isSecondPick ? 40 : 34;
-  const titleY = panelY + 55;
+  drawUIText(titleText, W/2, panelY + 38 + 12, 'body', {
+    size: 30,
+    strokeWidth: 4
+  });
 
-  ctx.font = 'bold ' + titleSize + 'px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-  ctx.strokeText(titleText, W / 2, titleY);
-
-  if(isSecondPick){
-    const tg = ctx.createLinearGradient(0, titleY - 22, 0, titleY + 22);
-    tg.addColorStop(0, '#fff5c0');
-    tg.addColorStop(0.5, '#ffd24a');
-    tg.addColorStop(1, '#ffb020');
-    ctx.fillStyle = tg;
-  } else {
-    ctx.fillStyle = '#8ef0a8';
-  }
-  ctx.fillText(titleText, W / 2, titleY);
-
-  // 副标题
+  // 副标题（主体内）
   const subText = isSecondPick ? '再选一项强化！' : '请选择一项强化';
-  const subY = panelY + 105;
+  const subY = panelY + 120;
 
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-  ctx.strokeText(subText, W / 2, subY);
-  ctx.fillStyle = '#dfe9e3';
-  ctx.fillText(subText, W / 2, subY);
+  drawUIText(subText, W / 2, subY, 'body', { size: 22 });
 
   // ===== 卡片区域（居中） =====
   const cardAreaW = CW * n + GAP * (n - 1);
   const sx = panelX + (panelW - cardAreaW) / 2;
-  const sy = panelY + headerH;
+  const sy = panelY + headerH + 10;
 
   buffCards = [];
 
@@ -8484,7 +8461,7 @@ function drawBuffSelect(){
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('推荐', tagX + tagW / 2, tagY + tagH / 2 + 1);
@@ -8506,11 +8483,11 @@ function drawBuffSelect(){
     ctx.restore();
 
     ctx.fillStyle = '#5a6a88';
-    ctx.font = 'bold 12px "Microsoft YaHei",sans-serif';
+    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
     if(b.isUnlock){
-      ctx.fillText('解锁新武器', x + CW / 2, y + 64);
+      ctx.fillText('解锁新武器', x + CW / 2, y + 66);
     } else {
-      ctx.fillText('Lv.' + lv + ' / ' + b.max, x + CW / 2, y + 64);
+      ctx.fillText('Lv.' + lv + ' / ' + b.max, x + CW / 2, y + 66);
     }
 
     // 分割线 1
@@ -8551,7 +8528,7 @@ function drawBuffSelect(){
       ctx.stroke();
 
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px "Microsoft YaHei",sans-serif';
+      ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(wname, tagCx, tagCy + 1);
@@ -8669,21 +8646,36 @@ function drawBuffSelect(){
 function drawDeadScreen(){
   drawAppOverlay(0.9);
 
-  drawAppTitle('喵 星 陨 落', W/2, 80, 52);
+  const boxW = W - 60;
+  const boxH = 700;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2;
+
+  const info = drawDialogPanel(boxX, boxY, boxW, boxH, '喵 星 陨 落', {
+    titleH: 76, closeSize: 56, titleSize: 32
+  });
+  deadCloseRect = info.closeRect;
 
   drawUITextRich([
     { text: '存活到第 ' },
     { text: String(wave),  colorKey: 'accent', gold: true },
     { text: ' 波  ·  得分 ' },
     { text: String(score), colorKey: 'accent', gold: true }
-  ], W/2, 122, { size: 20 });
+  ], W/2, boxY + 150, { size: 22 });
 
-  drawDamageStats(W/2, 180, false);
+  drawDamageStats(W/2, boxY + 210, false);
 
-  drawAppButton(DEAD_LB_BTN,      '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });
-  drawAppButton(DEAD_RESTART_BTN, '重新开始', '#7fe0a0', '#289858', { fontSize: 24 });
+  // 两个按钮左右并排
+  drawAppButton(
+    { x: W/2 - 105, y: boxY + boxH - 90, w: 180, h: 64 },
+    '退出游戏', '#ff8fb0', '#c84870', { fontSize: 22 }
+  );
+  drawAppButton(
+    { x: W/2 + 105, y: boxY + boxH - 90, w: 180, h: 64 },
+    '重新开始', '#7fe0a0', '#289858', { fontSize: 22 }
+  );
 
-  drawUIText('按 R 也可重开', W/2, H - 40, 'muted', { size: 14 });
+  drawUIText('按 R 也可重开', W/2, boxY + boxH - 18, 'muted', { size: 15 });
 }
 
 // ================= 教程界面 =================
@@ -8728,9 +8720,9 @@ function drawTutorialScreen(){
 
     // 提示
     const pls = 0.5 + Math.sin(gameTime * 3) * 0.5;
-    ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = 'rgba(140, 240, 180, ' + (0.55 + pls * 0.45) + ')';
-    ctx.fillText(step.hint || '点击屏幕继续', W/2, ly + 40);
+    ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
+    ctx.fillStyle = 'rgba(160, 250, 200, ' + (0.65 + pls * 0.35) + ')';
+    ctx.fillText(step.hint || '点击屏幕继续', W/2, ly + 42);
 
     // 进度点
     drawTutorialProgressDots();
@@ -8831,31 +8823,28 @@ function drawTutorialScreen(){
   ctx.textBaseline = 'middle';
 
   // 标题
-  ctx.font = 'bold 28px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-  ctx.strokeText(step.title, W/2, panelY + 46);
-  const titleGrd = ctx.createLinearGradient(0, panelY + 30, 0, panelY + 60);
-  titleGrd.addColorStop(0, '#e0fff0');
-  titleGrd.addColorStop(1, '#5cd88a');
-  ctx.fillStyle = titleGrd;
-  ctx.fillText(step.title, W/2, panelY + 46);
+  drawUIText(step.title, W/2, panelY + 48, 'title', {
+    size: 30,
+    gradient: UI_GRADIENT_GOLD,
+    glow: true,
+    glowColor: 'rgba(255, 210, 74, 0.75)',
+    glowSize: 16
+  });
 
   // 描述
-  ctx.font = 'bold 20px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = '#dfe9e3';
-  let ly = panelY + 92;
+  let ly = panelY + 98;
   for(const line of lines){
-    ctx.fillText(line, W/2, ly);
-    ly += 38;
+    drawUIText(line, W/2, ly, 'body', { size: 22 });
+    ly += 40;
   }
 
   // 底部提示（保证在进度点上方至少 28px，避免和点重叠）
   const pulse2 = 0.5 + Math.sin(gameTime * 3) * 0.5;
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(140, 240, 180, ' + (0.55 + pulse2 * 0.45) + ')';
   const hintY = Math.min(panelY + panelH - 30, H - 70);
-  ctx.fillText(step.hint || '点击屏幕继续', W/2, hintY);
+  drawUIText(step.hint || '点击屏幕继续', W/2, hintY, 'success', {
+    size: 18,
+    alpha: 0.65 + pulse2 * 0.35
+  });
 
   drawTutorialProgressDots();
 }
@@ -9567,14 +9556,14 @@ function drawLowHpWarning(){
 
   // 4. 文字提示（仅极低血量）
   if(p <= 0.2){
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 30px "Microsoft YaHei",sans-serif';
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
     const warnY = H * 0.22 + Math.sin(gameTime * 8) * 4;
-    ctx.strokeText('⚠ 血量危险！', W/2, warnY);
-    ctx.fillStyle = 'rgba(255, 80, 80, ' + (0.7 + pulse * 0.3) + ')';
-    ctx.fillText('⚠ 血量危险！', W/2, warnY);
+    drawUIText('⚠ 血量危险！', W/2, warnY, 'danger', {
+      size: 32,
+      scale: 1 + pulse * 0.08,
+      glow: true,
+      glowColor: 'rgba(255, 80, 80, 0.95)',
+      glowSize: 22 + pulse * 14
+    });
   }
 
   ctx.restore();

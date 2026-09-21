@@ -9,12 +9,14 @@
     // 不用管图片实际像素，切片会按比例自动算
     // 如果某个素材拉伸后边缘变形，只需微调这个数值（比如从 0.20 调到 0.15）
     sliceRatio: {
-      panel:  0.15,
-      button: 0.20,   // ★ 从 0.30 改到 0.20
-      frame:  0.30,
-      banner: 0.35,
-      bubble: 0.35,
-      bar:    0.50
+      panel:      0.15,
+      button:     0.20,
+      frame:      0.30,
+      banner:     0.35,
+      bubble:     0.35,
+      bar:        0.50,
+      titleBar:   0.50,   // 紫条：切出完整左右圆角（半圆占高 50%）
+      dialogBody: 0.15    // 深灰主体
     },
   
     // ================= 图片预加载 =================
@@ -42,7 +44,10 @@
         { key: 'icon_star',    src: 'images/ui/icon_star.png' },
         { key: 'icon_skill_laser', src: 'images/ui/icon_skill_laser.png' },
         { key: 'bar_track',      src: 'images/ui/bar_track.png' },
-        { key: 'bar_fill_green', src: 'images/ui/bar_fill_green.png' }
+        { key: 'bar_fill_green', src: 'images/ui/bar_fill_green.png' },
+        { key: 'dialog_title',   src: 'images/ui/dialog_title.png' },
+        { key: 'dialog_body',    src: 'images/ui/dialog_body.png' },
+        { key: 'btn_close',      src: 'images/ui/btn_close.png' }
       ];
   
       let loaded = 0;
@@ -79,9 +84,9 @@
       if(sSrc < 1) sSrc = 1;
   
       // 目标切片尺寸（按按钮短边比例，独立缩放）
-      // ★ 关键：目标切片不能超过按钮尺寸的 40%
+      // ★ 目标切片上限 50%（紫条的圆角占高 50%，需要这个上限）
       let sDst = Math.round(Math.min(w, h) * ratio);
-      sDst = Math.min(sDst, Math.floor(Math.min(w, h) * 0.40));
+      sDst = Math.min(sDst, Math.floor(Math.min(w, h) * 0.50));
       if(sDst < 1) sDst = 1;
   
       // 1. 四角（源正方形 → 目标正方形，缩放映射）
@@ -203,7 +208,47 @@
         UI.draw9Slice(ctx, fill, x, y, w * Math.min(1, ratio), h, UI.sliceRatio.bar);
         ctx.restore();
       }
-    }
+    },
+        // ================= 通用组件：紫条标题 =================
+        drawTitleBar(ctx, x, y, w, h, titleKey){
+          const img = UI.assets[titleKey || 'dialog_title'];
+          if(!img) return;
+    
+          const iw = img.width;
+          const ih = img.height;
+    
+          // ★ 源图左右各取「短边 × 1.0」作为圆角段（胶囊素材，圆角横向占比较宽）
+          // 对于 512×99 素材，sSrc = 99，左右各 99px，完整覆盖圆角
+          let sSrc = Math.min(iw / 2 - 1, ih);
+          if(sSrc < 1) sSrc = 1;
+    
+          // 目标左右段宽度：按高度等比缩放
+          const sDst = sSrc * (h / ih);
+    
+          // 若左右两段之和超过总宽，退化为直接拉伸
+          if(sDst * 2 >= w){
+            ctx.drawImage(img, 0, 0, iw, ih, x, y, w, h);
+            return;
+          }
+    
+          // 1. 左段
+          ctx.drawImage(img, 0, 0, sSrc, ih, x, y, sDst, h);
+    
+          // 2. 中段（横向拉伸）
+          ctx.drawImage(img, sSrc, 0, iw - sSrc * 2, ih,
+                        x + sDst, y, w - sDst * 2, h);
+    
+          // 3. 右段
+          ctx.drawImage(img, iw - sSrc, 0, sSrc, ih,
+                        x + w - sDst, y, sDst, h);
+        },
+    
+        // ================= 通用组件：深灰弹窗主体 =================
+        drawDialogBody(ctx, x, y, w, h, bodyKey){
+          const img = UI.assets[bodyKey || 'dialog_body'];
+          if(!img) return;
+          UI.draw9Slice(ctx, img, x, y, w, h, UI.sliceRatio.dialogBody);
+        }
   };
   
   })();
