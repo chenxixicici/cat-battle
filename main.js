@@ -33,8 +33,9 @@ resize();
 const MOVE_BASE  = { x: 130, y: H - 150 };
 const PAUSE_BTN  = { x: W - 60, y: 60, r: 50 };
 const MISSILE_BTN = { x: W - 90, y: H - 110, r: 54 };
+const ORB_BTN     = { x: W - 90, y: H - 490, r: 54 };
 const LASER_BTN   = { x: W - 90, y: H - 300, r: 54 };
-const AUTO_BTN    = { x: W - 90, y: H - 430, w: 76, h: 36 };
+const AUTO_BTN    = { x: W - 90, y: H - 620, w: 76, h: 36 };
 // 暂停界面按钮（在 drawPauseOverlay 里动态计算，这里存一份供点击检测）
 const RESUME_BTN       = { x: W/2, y: 0, w: 220, h: 60 };
 const PAUSE_LB_BTN     = { x: W/2, y: 0, w: 220, h: 56 };
@@ -42,8 +43,9 @@ const RESTART_BTN      = { x: W/2, y: 0, w: 220, h: 56 };
 
 // 死亡界面按钮已改为弹窗内联，不需要全局常量
 const LB_CLOSE_BTN     = { x: W/2, y: H - 80, w: 240, h: 62 };
-const CONFIRM_NO_BTN  = { x: W/2 - 90, y: H/2 + 70, w: 160, h: 60 };  // 左边：取消
-const CONFIRM_YES_BTN = { x: W/2 + 90, y: H/2 + 70, w: 160, h: 60 };  // 右边：确认
+// 退出确认弹窗按钮（在 drawConfirmRestart 里动态计算，绘制/点击共用）
+const CONFIRM_NO_BTN  = { x: W/2 - 90, y: 0, w: 160, h: 60 };   // 左边：取消
+const CONFIRM_YES_BTN = { x: W/2 + 90, y: 0, w: 160, h: 60 };   // 右边：确认
 const AVATAR      = { x: 50, y: 50, r: 36 };
 const HELP_QUICK_BTN = { x: 50, y: 168, r: 48 };
 
@@ -60,6 +62,26 @@ const VICTORY_END_BTN      = { x: W/2, y: 940, w: 400, h: 88 };
 const STAGE_CLEAR_BTN = { x: W/2, y: H * 0.78, w: 400, h: 88 };
 // 关卡上限
 const MAX_WAVE = 20;
+// ================= 闯关模式 =================
+const TOTAL_STAGES = 30;                          // 总关卡数
+const STAGE_PROGRESS_KEY = 'cat_battle_stage_progress_v1';
+
+let gameMode = 'stage';              // 'stage' | 'endless'
+let currentStageNum = 1;             // 闯关模式下当前关卡号
+
+let stageProgress = {
+  unlockedMax: 1,                    // 已解锁到第几关
+  stars: {}                          // { 关卡号: 星数 0~3 }
+};
+
+let stageScrollY = 0;
+let stageScrollMaxY = 0;
+let stageScroll = { dragging: false, startY: 0, startScrollY: 0 };
+let stageCards = [];                 // 选关卡片的点击热区
+let stageSelectCloseRect = null;
+let stageVictoryInfo = null;         // 关卡结算数据
+let stageVictoryBtnRects = [];       // 结算界面的按钮热区
+let stageTotalEnemies = 0;   // 本关总怪物数（用于"剩余"统计）
 // 是否已解锁全部武器
 function isAllWeaponsUnlocked(){
   return !!(unlockedWeapons.can &&
@@ -99,8 +121,9 @@ let editingCatKey = null;
 let nameInput = null;
 
 // 猫选择界面按钮
-const CATCHOOSE_START_BTN  = { x: W/2, y: 830, w: 400, h: 88 };
-const CATCHOOSE_BACK_BTN   = { x: W/2, y: 940, w: 260, h: 64 };
+const CATCHOOSE_STAGE_BTN   = { x: W/2, y: 790, w: 400, h: 80 };   // 开始闯关
+const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 880, w: 400, h: 80 };   // 无尽模式
+const CATCHOOSE_BACK_BTN   = { x: W/2, y: 965, w: 260, h: 60 };
 // 两张猫卡片的矩形（用于点击检测）
 const CAT_CARD_RECTS = [
   { x: 60,  y: 220, w: 280, h: 500, key: 'mimi' },
@@ -562,6 +585,97 @@ const WEAPON_NAMES = {
   laserGold: { name: '金色激光', color: '#ffd24a' },
   missile:   { name: '导弹',    color: '#ff8a3c' }
 };
+
+// ================= 关卡进度存储 =================
+function loadStageProgress(){
+  try{
+    const raw = localStorage.getItem(STAGE_PROGRESS_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(d && typeof d.unlockedMax === 'number'){
+      stageProgress.unlockedMax = Math.max(1, Math.min(TOTAL_STAGES, d.unlockedMax));
+    }
+    if(d && d.stars && typeof d.stars === 'object'){
+      stageProgress.stars = d.stars;
+    }
+  }catch(e){}
+}
+function saveStageProgress(){
+  try{
+    localStorage.setItem(STAGE_PROGRESS_KEY, JSON.stringify(stageProgress));
+  }catch(e){}
+}
+function recordStageResult(stageNum, stars){
+  const prev = stageProgress.stars[stageNum] || 0;
+  if(stars > prev) stageProgress.stars[stageNum] = stars;
+  if(stageNum >= stageProgress.unlockedMax){
+    stageProgress.unlockedMax = Math.min(TOTAL_STAGES, stageNum + 1);
+  }
+  saveStageProgress();
+}
+function calcStars(hpRatio){
+  if(hpRatio >= 0.9) return 3;
+  if(hpRatio >= 0.55) return 2;
+  return 1;
+}
+
+// ================= 关卡配置 =================
+// 第 1 关 = 教学关（走原有逻辑）
+// 第 2 关起：每关 3 波，难度线性递增
+function getStageConfig(stageNum){
+  if(stageNum === 1) return null;
+
+  const N = stageNum;
+  const hpScale  = 1 + (N - 1) * 0.14;
+  const spScale  = 1 + (N - 1) * 0.018;
+  const dmgScale = 1 + (N - 1) * 0.045;
+
+  // 怪物池（随关卡解锁）
+  const pool = ['zombie'];
+  if(N >= 3)  pool.push('runner');
+  if(N >= 5)  pool.push('spitter');
+  if(N >= 7)  pool.push('skeleton');
+  if(N >= 10) pool.push('brute');
+  if(N >= 13) pool.push('armored');
+  if(N >= 18) pool.push('elite');
+
+  // 3 波，数量线性递增
+  const waves = [];
+  for(let i = 0; i < 3; i++){
+    const baseCount = 6 + (N - 2) * 1.5 + i * 4;
+    const count = Math.min(40, Math.floor(baseCount));
+    const list = [];
+    for(let k = 0; k < count; k++){
+      list.push(pool[Math.floor(Math.random() * pool.length)]);
+    }
+    waves.push({ list, interval: 0.75, shuffle: true });
+  }
+
+  return { waves, hpScale, spScale, dmgScale };
+}
+
+// ================= 开始某关 =================
+function startStageGame(stageNum){
+  gameMode = 'stage';
+  currentStageNum = stageNum;
+  reset('stage', stageNum);
+}
+
+// ================= 显示关卡结算 =================
+function showStageVictory(){
+  const stageNum = currentStage;
+  const hpRatio = player.hp / player.maxHp;
+  const stars = calcStars(hpRatio);
+  recordStageResult(stageNum, stars);
+  stageVictoryInfo = {
+    stageNum: stageNum,
+    stars: stars,
+    hpRatio: hpRatio,
+    isLast: stageNum >= TOTAL_STAGES
+  };
+  state = 'stageVictory';
+  last = performance.now();
+}
 
 function loadLeaderboard(){
   try{
@@ -1203,6 +1317,7 @@ window.addEventListener('keydown', e => {
   const k = (e.key || '').toLowerCase();
   if(k === ' '){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.missile) fireMissile(); }
   if(k === 'e'){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.laser) fireLaser(); }
+  if(k === 'q'){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.orb) fireOrb(); }
   if(k === 'r' && state === 'dead') reset();
   if(k === 'f2' || k === '`'){
     e.preventDefault();
@@ -1504,7 +1619,48 @@ function onPointerDown(e){
     }
     return;
   }
+  // ============ 选关界面 ============
+  if(state === 'stageSelect'){
+    // 红X：返回选猫
+    if(stageSelectCloseRect &&
+       p.x >= stageSelectCloseRect.x && p.x <= stageSelectCloseRect.x + stageSelectCloseRect.w &&
+       p.y >= stageSelectCloseRect.y && p.y <= stageSelectCloseRect.y + stageSelectCloseRect.h){
+      state = 'catselect';
+      return;
+    }
+    // 点卡片
+    for(const c of stageCards){
+      if(c.unlocked &&
+         p.x >= c.x && p.x <= c.x + c.w &&
+         p.y >= c.y && p.y <= c.y + c.h){
+        startStageGame(c.num);
+        return;
+      }
+    }
+    // 开始拖动
+    stageScroll.dragging = true;
+    stageScroll.startY = p.y;
+    stageScroll.startScrollY = stageScrollY;
+    return;
+  }
 
+  // ============ 关卡结算界面 ============
+  if(state === 'stageVictory'){
+    for(const r of stageVictoryBtnRects){
+      if(p.x >= r.x && p.x <= r.x + r.w &&
+         p.y >= r.y && p.y <= r.y + r.h){
+        if(r.action === 'next'){
+          startStageGame(currentStage + 1);
+        } else if(r.action === 'back'){
+          state = 'stageSelect';
+          stageScrollY = 0;
+          stageVictoryInfo = null;
+        }
+        return;
+      }
+    }
+    return;
+  }
   // ============ 选猫界面 ============
   if(state === 'catselect'){
     // 正在编辑名字：先提交
@@ -1530,13 +1686,24 @@ function onPointerDown(e){
       }
     }
 
-    // 开始按钮
-    const sb = CATCHOOSE_START_BTN;
+    // 开始闯关
+    const sb = CATCHOOSE_STAGE_BTN;
     if(p.x >= sb.x - sb.w/2 && p.x <= sb.x + sb.w/2 &&
        p.y >= sb.y - sb.h/2 && p.y <= sb.y + sb.h/2){
       saveCatPref();
-      reset();
+      state = 'stageSelect';
+      stageScrollY = 0;
       return;
+    }
+    // 无尽模式（仅解锁后响应）
+    if(isEndlessUnlocked()){
+      const eb2 = CATCHOOSE_ENDLESS_BTN;
+      if(p.x >= eb2.x - eb2.w/2 && p.x <= eb2.x + eb2.w/2 &&
+         p.y >= eb2.y - eb2.h/2 && p.y <= eb2.y + eb2.h/2){
+        saveCatPref();
+        reset('endless', 0);
+        return;
+      }
     }
 
     // 返回按钮
@@ -1594,7 +1761,33 @@ function onPointerDown(e){
   }
 
   if(state === 'dead'){
-    // ★ 红X：返回主菜单
+    // ★ 关卡模式：点红X → 返回选关；点左边按钮 → 返回选关；点右边 → 重试本关
+    if(gameMode === 'stage'){
+      if(deadCloseRect &&
+         p.x >= deadCloseRect.x && p.x <= deadCloseRect.x + deadCloseRect.w &&
+         p.y >= deadCloseRect.y && p.y <= deadCloseRect.y + deadCloseRect.h){
+        state = 'stageSelect';
+        stageScrollY = 0;
+        return;
+      }
+      const boxH3 = 700;
+      const boxY3 = (H - boxH3) / 2;
+      const btnY3 = boxY3 + boxH3 - 90;
+      if(p.x >= W/2 - 105 - 90 && p.x <= W/2 - 105 + 90 &&
+         p.y >= btnY3 - 32 && p.y <= btnY3 + 32){
+        state = 'stageSelect';
+        stageScrollY = 0;
+        return;
+      }
+      if(p.x >= W/2 + 105 - 90 && p.x <= W/2 + 105 + 90 &&
+         p.y >= btnY3 - 32 && p.y <= btnY3 + 32){
+        reset('stage', currentStageNum);
+        return;
+      }
+      return;
+    }
+
+    // ★ 无尽模式红X：返回主菜单
     if(deadCloseRect &&
        p.x >= deadCloseRect.x && p.x <= deadCloseRect.x + deadCloseRect.w &&
        p.y >= deadCloseRect.y && p.y <= deadCloseRect.y + deadCloseRect.h){
@@ -1800,6 +1993,12 @@ function onPointerDown(e){
     skillTip = { type: 'airstrike', fade: 0 };
     return;
   }
+   // ★ 毛球按钮：点击释放
+  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0 &&
+     Math.hypot(p.x - ORB_BTN.x, p.y - ORB_BTN.y) < ORB_BTN.r + 22){
+    fireOrb();
+    return;
+  }
   // 激光按钮：点击释放，按住 0.35s 显示 tips
   if(unlockedWeapons.laser &&
      Math.hypot(p.x - LASER_BTN.x, p.y - LASER_BTN.y) < LASER_BTN.r + 22){
@@ -1835,12 +2034,25 @@ function onPointerDown(e){
 }
 
 function onPointerMove(e){
+  // 选关滚动
+  if(state === 'stageSelect' && stageScroll.dragging){
+    e.preventDefault();
+    const p = toCanvasXY(e.clientX, e.clientY);
+    const dy = p.y - stageScroll.startY;
+    stageScrollY = Math.max(0, Math.min(stageScrollMaxY, stageScroll.startScrollY - dy));
+    return;
+  }
+
   if(e.pointerId !== moveJoy.id) return;
   e.preventDefault();
   const p = toCanvasXY(e.clientX, e.clientY);
   updateJoy(moveJoy, p);
 }
+
 function onPointerUp(e){
+  if(state === 'stageSelect'){
+    stageScroll.dragging = false;
+  }
   if(e.pointerId === moveJoy.id) resetJoy(moveJoy, MOVE_BASE);
 
   // 长按释放：tips 保持；短按则关掉对应的 tips
@@ -2760,7 +2972,7 @@ const MAX_ENEMIES_ON_FIELD = 30;
 const CAN_AUTO_INTERVAL = 5;
 const LASER_COST        = 100;
 const LASER_DURATION    = 0.30;
-const LASER_BASE_RADIUS = 900;
+const LASER_BASE_RADIUS = 2400;
 const LASER_BASE_DAMAGE = 140;
 const ENERGY_REGEN      = 0;   // 已改为命中/击杀获取
 const CAN_BASE_DAMAGE   = 115;
@@ -2771,6 +2983,8 @@ const ORB_BASE_DAMAGE   = 26;
 const ORB_BASE_RADIUS   = 180;
 const ORB_BASE_SIZE     = 26;
 const ORB_BASE_SPEED    = 0.8;
+const ORB_DURATION  = 8;    // 毛球持续时间（秒）
+const ORB_COOLDOWN  = 12;   // 毛球冷却（秒）
 const ORB_HIT_CD        = 0.38;
 const ORB_KNOCKBACK     = 55;
 const BUFF_CRIT_CHANCE  = 0.25;
@@ -2783,7 +2997,8 @@ const MISSILE_SPEED        = 640;
 
 let laser = {
   active: false,
-  targets: [],         // [{ id, dmgAccum, floatTimer }]
+  angle: 0,            // 当前发射方向
+  hitSet: new Map(),   // { enemyId: { accum, timer } } 飘字累积
   timer: 0,
   duration: 8.0,
   dps: 0,
@@ -2791,11 +3006,17 @@ let laser = {
   isGold: false
 };
 
-function reset(){
-  // v2 教学关不继承任何旧存档（含 v1 的残留）
+function reset(mode, stageNum){
+  // 无参调用 → 用当前模式重开
+  if(mode === undefined){
+    mode = gameMode || 'stage';
+    stageNum = (mode === 'stage') ? (currentStageNum || 1) : 0;
+  }
+
   clearProgress();
   state = 'playing';
   waveCapDisabled = false;
+
   const savedAvatar = globalAvatarImg || (player && player.avatarImg) || null;
   globalAvatarImg = savedAvatar;
 
@@ -2820,6 +3041,8 @@ function reset(){
     orbSpeedMult: 1,
     orbAngle: 0,
     orbHitCd: new Map(),
+    orbActiveTimer: 0,     // 剩余持续时间
+    orbCooldown: 0,        // 剩余冷却
     missileCount: MISSILE_BASE_COUNT,
     missileDamage: MISSILE_BASE_DAMAGE,
     missileCharges: MISSILE_MAX_CHARGES,
@@ -2827,7 +3050,6 @@ function reset(){
     missileChargeTime: MISSILE_CHARGE_TIME,
     missileChargeTimer: 0
   };
-
   recalcPlayerStats();
 
   enemies = []; bullets = []; eBullets = []; cans = [];
@@ -2836,22 +3058,13 @@ function reset(){
   missileList = [];
   cam = { x: 0, y: 0, shake: 0 };
 
-  // 每次开局都从教学第 1 关开始（第 1 小块先不做存档）
-  currentStage = 1;
-  waveInStage = 0;
-  wave = 0;
-  unlockedWeapons = {};
-  unlockedWeapons.catfood = true;
-  // 猫粮默认解锁（普攻本来就有）
-  unlockedWeapons.catfood = true;
   stageClearInfo = null;
   stageKillCount = 0;
   pendingStageClearAfterBuff = false;
 
-  // 初始化教程队列
   tutorialStep = 0;
-  tutorialQueue = INITIAL_TUTORIAL_STEPS.slice();
-  tutorialOnFinish = 'start-game';
+  tutorialQueue = [];
+  tutorialOnFinish = null;
   helpListRects = [];
 
   waveActive = false; spawnQueue = [];
@@ -2879,28 +3092,31 @@ function reset(){
   pendingCritReward = false;
   isSecondPick = false;
   bubble.life = 0; bubble.text = '';
-  // 读取自动释放设置
   try{ autoCast = localStorage.getItem('cat_auto_cast') === '1'; }
   catch(e){ autoCast = false; }
   autoCastAnim = autoCast ? 1 : 0;
   laser.active = false;
-  laser.targets = [];
+  laser.angle = 0;
+  laser.hitSet = new Map();
   laser.timer = 0;
   laser.dps = 0;
   laser.flash = 0;
   laser.isGold = false;
   laserCooldown = 0;
+    // 毛球技能状态已在 player 对象里初始化
   stopBGM();
   runDamageStats = {};
   resetJoy(moveJoy, MOVE_BASE);
 
   generateGroundDecorations();
   updateCameraInstant();
-  setBackground('grass');   // ★ 每次新开局先回到草地
+  setBackground('grass');
 
-  if(hasDoneTutorial()){
-    // ===== 老玩家：跳过教程，直接进无尽模式 =====
-    // 武器全解锁（玩家已经学过），buff 从零开始
+  // ===== 模式分流 =====
+  if(mode === 'endless'){
+    gameMode = 'endless';
+    currentStageNum = 0;
+
     unlockedWeapons.can       = true;
     unlockedWeapons.orb       = true;
     unlockedWeapons.laser     = true;
@@ -2908,16 +3124,59 @@ function reset(){
     unlockedWeapons.airstrike = true;
     recalcPlayerStats();
 
-    currentStage = 0;        // 0 = 无尽模式
+    currentStage = 0;        // 无尽模式
     waveInStage = 0;
     wave = 0;
     state = 'playing';
     waveBreakTimer = 1.6;
     banner = { text: '无尽模式', life: 2.0 };
     last = performance.now();
+    return;
+  }
+
+  // ===== 闯关模式 =====
+  gameMode = 'stage';
+  currentStageNum = stageNum;
+  currentStage = stageNum;
+  unlockedWeapons = {};
+
+  // ★ 计算本关总怪物数
+  if(stageNum === 1){
+    let sum = 0;
+    for(const w of TUTORIAL_WAVES) sum += (w.list ? w.list.length : 0);
+    stageTotalEnemies = sum;
   } else {
-    // ===== 新手：先走教程 =====
+    const cfg = getStageConfig(stageNum);
+    let sum = 0;
+    for(const w of cfg.waves) sum += (w.list ? w.list.length : 0);
+    stageTotalEnemies = sum;
+  }
+
+  if(stageNum === 1){
+    // 第 1 关：走教学
+    unlockedWeapons.catfood = true;
+    waveInStage = 0;
+    wave = 0;
+    tutorialStep = 0;
+    tutorialQueue = INITIAL_TUTORIAL_STEPS.slice();
+    tutorialOnFinish = 'start-game';
     state = 'tutorial';
+    last = performance.now();
+  } else {
+    // 第 2 关起：全武器
+    unlockedWeapons.catfood   = true;
+    unlockedWeapons.can       = true;
+    unlockedWeapons.orb       = true;
+    unlockedWeapons.laser     = true;
+    unlockedWeapons.missile   = true;
+    unlockedWeapons.airstrike = true;
+    recalcPlayerStats();
+
+    waveInStage = 1;
+    wave = 1;
+    state = 'playing';
+    startWave(1);
+    last = performance.now();
   }
 }
 
@@ -3229,11 +3488,10 @@ function chooseBuff(id){
   // 正常结束
   isSecondPick = false;
 
-  // 教学关最后一波：选完强化后进过关弹窗
-  if(pendingStageClearAfterBuff && stageClearInfo){
+  // 关卡最后一波：选完强化后进关卡结算
+  if(pendingStageClearAfterBuff){
     pendingStageClearAfterBuff = false;
-    state = 'stageclear';
-    last = performance.now();
+    showStageVictory();
     return;
   }
 
@@ -3341,11 +3599,12 @@ function pickType(n){
 }
 function startWave(n){
   waveActive = true;
+  const isTutorial = (currentStage === 1);
 
-  const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
   let bannerText;
 
   if(isTutorial){
+    // ===== 第 1 关：教学波次 =====
     const wcfg = TUTORIAL_WAVES[waveInStage - 1];
     spawnQueue = [];
     if(wcfg && wcfg.list){
@@ -3365,8 +3624,30 @@ function startWave(n){
     }
     waveSpawn.active = false;
     bannerText = '教学 · 第 ' + waveInStage + ' / ' + STAGE_WAVES + ' 波';
+  } else if(currentStage >= 2){
+    // ===== 第 2 关起：关卡模式 =====
+    const cfg = getStageConfig(currentStage);
+    const wcfg = cfg.waves[waveInStage - 1];
+    spawnQueue = [];
+    if(wcfg && wcfg.list){
+      let types = wcfg.list.slice();
+      if(wcfg.shuffle){
+        for(let i = types.length - 1; i > 0; i--){
+          const j = Math.floor(Math.random() * (i + 1));
+          [types[i], types[j]] = [types[j], types[i]];
+        }
+      }
+      for(let i = 0; i < types.length; i++){
+        spawnQueue.push({ type: types[i], t: i * wcfg.interval });
+      }
+      waveTotal = types.length;
+    } else {
+      waveTotal = 0;
+    }
+    waveSpawn.active = false;
+    bannerText = '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 3 波';
   } else {
-    // 无尽模式：3 阶段生成
+    // ===== 无尽模式 =====
     const totalCount = getEndlessCount(n);
     const targetDuration = getEndlessDuration(n);
     const perStage = Math.ceil(totalCount / 3);
@@ -3389,9 +3670,6 @@ function startWave(n){
 
     waveTotal = totalCount;
     bannerText = '第 ' + n + ' 波  ·  ' + totalCount + ' 只';
-
-    const idx = Math.floor((Math.max(1, n) - 1) / 5) % ENDLESS_BACKGROUNDS.length;
-    setBackground(ENDLESS_BACKGROUNDS[idx]);
   }
 
   waveTimer = 0;
@@ -3447,11 +3725,11 @@ function spawnEnemy(type){
   let x = rand(150, WORLD.w - 150);
   let y = -60 - rand(0, 80);
 
-  const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
+  const isTutorial = (currentStage === 1);
   let hpScale, spScale, dmgScale;
 
   if(isTutorial){
-    // 教学关：每只怪 HP 固定，不随波次成长
+    // 教学关：每只怪 HP 固定
     const TUT_HP = {
       zombie: 40, runner: 40, spitter: 80,
       skeleton: 120, brute: 250,
@@ -3461,7 +3739,14 @@ function spawnEnemy(type){
     hpScale = thp / base.hp;
     spScale = 1.0;
     dmgScale = 1.0;
+  } else if(currentStage >= 2){
+    // ★ 闯关模式第 2 关起：按关卡缩放
+    const cfg = getStageConfig(currentStage);
+    hpScale = cfg.hpScale;
+    spScale = cfg.spScale;
+    dmgScale = cfg.dmgScale;
   } else {
+    // 无尽模式
     const w = Math.max(1, wave);
     hpScale = getEndlessHpScale(w);
     spScale = getEndlessSpScale(w);
@@ -3516,6 +3801,8 @@ function burst(x, y, n, color, spd){
 
 // ================= 毛球 =================
 function updateOrbs(dt){
+  // ★ 未激活或未解锁 → 不工作
+  if(player.orbActiveTimer <= 0) return;
   if(player.orbCount <= 0) return;
 
   player.orbAngle += dt * ORB_BASE_SPEED * player.orbSpeedMult * TAU;
@@ -3571,7 +3858,9 @@ function updateOrbs(dt){
 }
 
 function drawOrbs(){
-  if(!player || player.orbCount <= 0) return;
+  if(!player || player.orbActiveTimer <= 0) return;
+  if(player.orbCount <= 0) return;
+
   const count = player.orbCount;
   const r = player.orbRadius;
   const size = player.orbSize;
@@ -3583,6 +3872,7 @@ function drawOrbs(){
     drawSingleOrb(ox, oy, size);
   }
 }
+
 function drawSingleOrb(ox, oy, radius){
   const pulse = 0.5 + Math.sin(gameTime * 8 + ox * 0.1) * 0.5;
   ctx.fillStyle = 'rgba(255, 176, 208, ' + (0.22 + pulse * 0.14) + ')';
@@ -3646,8 +3936,9 @@ function fireMissile(){
     const dirA = Math.atan2(target.y - sy, target.x - sx);
     missileList.push({
       x: sx, y: sy,
-      vx: Math.cos(dirA) * MISSILE_SPEED,
-      vy: Math.sin(dirA) * MISSILE_SPEED,
+      vx: 0, vy: 0,                 // ★ 先静止
+      launchA: dirA,                // ★ 待发射方向
+      spawnDelay: i * 0.08,         // ★ 每颗延迟 80ms
       targetId: target.id,
       damage: player.missileDamage,
       life: 3.5,
@@ -3676,6 +3967,17 @@ function updateMissiles(dt){
     const m = missileList[i];
     m.life -= dt;
     if(m.life <= 0){ missileList.splice(i, 1); continue; }
+
+    // ★ 发射延迟：等待期间显示在原地
+    if(m.spawnDelay > 0){
+      m.spawnDelay -= dt;
+      continue;
+    }
+    // ★ 延迟结束，给予初始速度
+    if(m.vx === 0 && m.vy === 0 && m.launchA !== undefined){
+      m.vx = Math.cos(m.launchA) * MISSILE_SPEED;
+      m.vy = Math.sin(m.launchA) * MISSILE_SPEED;
+    }
 
     let target = null;
     for(const e of enemies){
@@ -3756,11 +4058,14 @@ function updateMissiles(dt){
 
 function drawMissiles(){
   for(const m of missileList){
+    const mDmgLv = player.buffLevels.missile_damage || 0;
+    const mScale = 1.7 * (1 + 0.12 * mDmgLv);   // ★ 伤害等级越高，导弹越大
+
     for(const t of m.trail){
       const a = Math.max(0, t.life / 0.25);
       ctx.fillStyle = 'rgba(255, 140, 60,' + (a * 0.55) + ')';
       ctx.beginPath();
-      ctx.arc(t.x, t.y, 7 * a, 0, TAU);
+      ctx.arc(t.x, t.y, 12 * a * (mScale / 1.7), 0, TAU);
       ctx.fill();
     }
 
@@ -3768,6 +4073,7 @@ function drawMissiles(){
     ctx.translate(m.x, m.y);
     const ang = Math.atan2(m.vy, m.vx);
     ctx.rotate(ang);
+    ctx.scale(mScale, mScale);
 
     ctx.fillStyle = 'rgba(255, 180, 60, 0.85)';
     ctx.beginPath();
@@ -3881,6 +4187,23 @@ function findNearestEnemies(count, excludeIds){
 let laserCooldown = 0;          // 当前剩余冷却
 const LASER_COOLDOWN_MAX = 10;  // 冷却总时长
 
+function fireOrb(){
+  if(state !== 'playing' || !player) return;
+  if(!unlockedWeapons.orb) return;
+  if(catBroTakenSkills.indexOf('orb') >= 0) return;
+  if(player.orbActiveTimer > 0) return;
+  if(player.orbCooldown > 0) return;
+  if(player.orbCount <= 0) return;
+
+  player.orbActiveTimer = ORB_DURATION;
+  player.orbCooldown    = 0;     // 冷却从技能结束时才开始算
+
+  say(randLine(LINES.orb), true);
+  sfx('orb');
+  cam.shake = Math.max(cam.shake, 8);
+  rings.push({ x: player.x, y: player.y, maxR: 90, life: 0.45, t: 0.45, color: '#ffb0d0' });
+}
+
 function fireLaser(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.laser) return;
@@ -3891,11 +4214,12 @@ function fireLaser(){
 
   laserCooldown = LASER_COOLDOWN_MAX;
   laser.active = true;
-  laser.targets = [];
+  laser.angle = -Math.PI / 2;   // ★ 永远朝正上方
   laser.timer = 0;
   laser.dps = player.laserDamage * 0.35;
   laser.flash = 1;
   laser.isGold = player.laserChargeTimer > 0;
+  laser.hitSet = new Map();
 
   say(randLine(LINES.laser), true);
   cam.shake = Math.max(cam.shake, laser.isGold ? 14 : 10);
@@ -3906,82 +4230,86 @@ function updateLaser(dt){
   if(laser.flash > 0) laser.flash = Math.max(0, laser.flash - dt * 3);
   if(!laser.active) return;
 
-  // 实时检测激光充能状态，中途拾取立即生效
+  // 实时检测金色激光
   const shouldGold = player.laserChargeTimer > 0;
   if(shouldGold !== laser.isGold){
     laser.isGold = shouldGold;
-    laser.dps = player.laserDamage * 0.35;   // 金色时伤害翻倍，由下面 isGold 判定
-    // 视觉反馈：闪一下，让玩家知道金色激光生效了
     laser.flash = 1;
-    rings.push({
-      x: player.x, y: player.y,
-      maxR: 80, life: 0.4, t: 0.4,
-      color: '#ffd24a'
-    });
+    rings.push({ x: player.x, y: player.y, maxR: 80, life: 0.4, t: 0.4, color: '#ffd24a' });
     burst(player.x, player.y, 20, '#ffd24a', 320);
     say(randLine(LINES.goldswitch), true);
   }
 
   laser.timer += dt;
+  // ★ 方向固定朝上，不跟随
 
-  // 最多同时锁定的目标数：基础 1 + buff + 金色激光额外 +1
-  const bonusCount = player.buffLevels.laser_count || 0;
-  const maxTargets = 1 + bonusCount + (laser.isGold ? 1 : 0);
+  // 激光起点（玩家前方偏移）
+  const facingLeft = Math.cos(laser.angle) < 0;
+  const ox = player.x + (facingLeft ? -8 : 8);
+  const oy = player.y - player.r * 0.6;
 
-  // 清理已死目标
-  for(let i = laser.targets.length - 1; i >= 0; i--){
-    const t = laser.targets[i];
-    let alive = false;
-    for(const e of enemies){
-      if(e.id === t.id && !e.dead){ alive = true; break; }
-    }
-    if(!alive) laser.targets.splice(i, 1);
-  }
+  const L = player.laserRadius;   // 激光长度
+  const cosA = Math.cos(laser.angle);
+  const sinA = Math.sin(laser.angle);
 
-  // 补足目标
-  while(laser.targets.length < maxTargets){
-    const usedIds = new Set(laser.targets.map(t => t.id));
-    const next = findNearestEnemies(1, usedIds)[0];
-    if(!next) break;
-    laser.targets.push({ id: next.id, dmgAccum: 0, floatTimer: 0 });
-  }
+  const dmgMult = (laser.isGold ? 2.0 : 1.0);
+  const rawDmg = laser.dps * dt * dmgMult;
+  const laserWidthBonus = player.buffLevels.laserpower || 0;
+  const beamHalfWidth = 22 * (1 + 0.18 * laserWidthBonus);
 
-  // 对每个目标造成伤害
-  for(const t of laser.targets){
-    let target = null;
-    for(const e of enemies){
-      if(e.id === t.id && !e.dead){ target = e; break; }
-    }
-    if(!target) continue;
+  // ===== 对每个敌人判定是否在光束内（穿透，不衰减） =====
+  for(const e of enemies){
+    if(e.dead) continue;
 
-    const rawDmg = laser.dps * dt * (laser.isGold ? 2.0 : 1.0);
-    const lType = laser.isGold ? 'laserGold' : 'laser';
-    // 静默造成伤害（不触发暴击/飘字，护盾和克制倍率照常）
-    dealDamage(target, rawDmg, 'laser', { silent: true, noCrit: true });
-    target.slowTimer = 0.25;
+    const dx = e.x - ox;
+    const dy = e.y - oy;
 
-    t.dmgAccum += rawDmg;
-    t.floatTimer += dt;
-    if(t.floatTimer >= 0.2){
+    // 投影长度（沿光束方向）
+    const proj = dx * cosA + dy * sinA;
+    if(proj < 0 || proj > L) continue;
+
+    // 垂直距离
+    const perp = Math.abs(-dx * sinA + dy * cosA);
+    if(perp > e.r + beamHalfWidth) continue;
+
+    // 命中：伤害不衰减，每个敌人一样
+    dealDamage(e, rawDmg, 'laser', { silent: true, noCrit: true });
+    e.slowTimer = 0.25;
+
+    // 飘字累积
+    let hi = laser.hitSet.get(e.id);
+    if(!hi){ hi = { accum: 0, timer: 0 }; laser.hitSet.set(e.id, hi); }
+    hi.accum += rawDmg;
+    hi.timer += dt;
+    if(hi.timer >= 0.2){
       const col = laser.isGold ? '#ffd24a' : '#88eeff';
-      addFloatText(target.x, target.y - target.r - 6, Math.round(t.dmgAccum), col, false);
-      t.dmgAccum = 0;
-      t.floatTimer = 0;
+      addFloatText(e.x, e.y - e.r - 6, Math.round(hi.accum), col, false);
+      hi.accum = 0;
+      hi.timer = 0;
     }
 
     if(Math.random() < dt * 40){
-      burst(target.x + rand(-8,8), target.y + rand(-8,8), 2,
+      burst(e.x + rand(-8,8), e.y + rand(-8,8), 2,
             laser.isGold ? '#ffd24a' : '#88eeff', 160);
     }
 
-    if(target.hp <= 0) killEnemy(target);
+    if(e.hp <= 0) killEnemy(e);
+  }
+
+  // 清理已死敌人的 hitSet
+  if(laser.hitSet.size > 60){
+    for(const id of Array.from(laser.hitSet.keys())){
+      let alive = false;
+      for(const e of enemies){ if(e.id === id && !e.dead){ alive = true; break; } }
+      if(!alive) laser.hitSet.delete(id);
+    }
   }
 
   cam.shake = Math.max(cam.shake, 1.5);
 
   if(laser.timer >= laser.duration){
     laser.active = false;
-    laser.targets = [];
+    laser.hitSet.clear();
   }
 }
 
@@ -4117,6 +4445,17 @@ function update(dt){
 
   if(player.laserChargeTimer > 0) player.laserChargeTimer = Math.max(0, player.laserChargeTimer - dt);
   if(laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt);
+
+  // ★ 毛球计时
+  if(player.orbActiveTimer > 0){
+    player.orbActiveTimer -= dt;
+    if(player.orbActiveTimer <= 0){
+      player.orbActiveTimer = 0;
+      player.orbCooldown = ORB_COOLDOWN;   // 技能结束 → 进入冷却
+    }
+  } else if(player.orbCooldown > 0){
+    player.orbCooldown = Math.max(0, player.orbCooldown - dt);
+  }
   if(player.recoil > 0) player.recoil = Math.max(0, player.recoil - dt);
 
   updateDrops(dt);
@@ -4229,10 +4568,13 @@ function update(dt){
       const aimAngle = Math.atan2(tgt.y - mzY, tgt.x - mzX);
       const a = aimAngle + rand(-0.025, 0.025);
 
+      const dmgLv = player.buffLevels.damage || 0;
+      const bulletR = 9 * (1 + 0.12 * dmgLv);   // ★ 伤害等级越高，子弹越大
+
       bullets.push({
         x: mzX, y: mzY,
         vx: Math.cos(a) * 740, vy: Math.sin(a) * 740,
-        r: 4.5, dmg: player.bulletDamage, life: bulletLife,
+        r: bulletR, dmg: player.bulletDamage, life: bulletLife,
         pierce: player.pierce, hitSet: null,
         targetId: BULLET_HOMING ? tgt.id : null,
         homingTimer: 0,
@@ -4486,48 +4828,47 @@ function update(dt){
       const bonus = 60 * wave;
       score += bonus;
 
-      const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
+      const isTutorial = (currentStage === 1);
+      const isStageMode = (currentStage >= 2);
 
-      // ============ 教学关：判断本关是否打完 ============
+      // ============ 第 1 关：教学完成 ============
       if(isTutorial && waveInStage >= STAGE_WAVES){
-        // 先准备好过关弹窗信息（不立即弹出）
-        stageClearInfo = {
-          finishedStage: currentStage,
-          isLastStage: currentStage >= TUTORIAL_MAX_STAGE,
-          unlockWeapon: null,
-          kills: stageKillCount
-        };
-        saveProgress();
-
-        // 最后一波也照常给一次强化，避免进无尽后太弱
         buffChoices = rollBuffChoices();
         if(buffChoices.length > 0){
           pendingStageClearAfterBuff = true;
           waveClearTimer = 1.5;
           waveBreakTimer = 99;
         } else {
-          // 没有可选的 buff（极端情况：全满级），直接进过关弹窗
           waveBreakTimer = 99;
-          state = 'stageclear';
+          showStageVictory();
         }
         return;
       }
 
-      // ============ 正常清完一波 ============
+      // ============ 第 2 关起：3 波完成 ============
+      if(isStageMode && waveInStage >= 3){
+        buffChoices = rollBuffChoices();
+        if(buffChoices.length > 0){
+          pendingStageClearAfterBuff = true;
+          waveClearTimer = 1.5;
+          waveBreakTimer = 99;
+        } else {
+          waveBreakTimer = 99;
+          showStageVictory();
+        }
+        return;
+      }
+
+      // ============ 普通清波 ============
       if(isTutorial){
-        banner = { text: '第 ' + currentStage + ' 关  ·  第 ' + waveInStage + ' 波清除', life: 1.5 };
+        banner = { text: '教学 · 第 ' + waveInStage + ' 波清除', life: 1.5 };
+      } else if(isStageMode){
+        banner = { text: '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 3 波清除', life: 1.5 };
       } else {
         banner = { text: '第 ' + wave + ' 波清除', life: 1.5 };
       }
 
-      // 无尽模式的通关判定
-      if(!isTutorial && wave >= MAX_WAVE && !waveCapDisabled){
-        saveProgress();
-        waveBreakTimer = 99;
-        state = 'victory';
-        return;
-      }
-
+      // ★ 无尽模式不再有通关
       buffChoices = rollBuffChoices();
       if(buffChoices.length > 0){
         waveClearTimer = 1.5;
@@ -5437,15 +5778,19 @@ function catBroFireMissile(catBro){
   const count = 2;
   for(let i = 0; i < count; i++){
     const a = (i / count) * TAU + Math.random() * 0.4;
-    const sx = catBro.x + Math.cos(a) * 12;
-    const sy = catBro.y + Math.sin(a) * 12;
+    const sx = player.x + Math.cos(a) * 18;
+    const sy = player.y + Math.sin(a) * 18;
+    const target = findHighestHpEnemy();
+    if(!target) break;
+
     const dirA = Math.atan2(target.y - sy, target.x - sx);
     missileList.push({
       x: sx, y: sy,
-      vx: Math.cos(dirA) * MISSILE_SPEED,
-      vy: Math.sin(dirA) * MISSILE_SPEED,
+      vx: 0, vy: 0,                   // ★ 先静止
+      launchA: dirA,                  // ★ 待发射方向
+      spawnDelay: i * 0.08,           // ★ 每颗间隔 80ms
       targetId: target.id,
-      damage: player.missileDamage * 0.6,
+      damage: player.missileDamage,
       life: 3.5,
       trail: []
     });
@@ -5918,75 +6263,130 @@ function drawSkillIcons(){
 // ================= 激光 =================
 function drawLaser(){
   if(!laser.active || !player) return;
-  if(laser.targets.length === 0) return;
 
-  const facingLeft = Math.cos(player.facing) < 0;
-  const eyeX = player.x + (facingLeft ? -6 : 6);
-  const eyeY = player.y - player.r * 1.4;
+  const angle = laser.angle;
+  const L = player.laserRadius;
+
+  const facingLeft = Math.cos(angle) < 0;
+  const ox = player.x + (facingLeft ? -8 : 8);
+  const oy = player.y - player.r * 0.6;
 
   const c1 = laser.isGold ? '255, 215, 80'  : '120, 240, 255';
   const c2 = laser.isGold ? '255, 240, 160' : '200, 250, 255';
-  const c3 = laser.isGold ? '255, 255, 220' : '255, 255, 255';
 
   const fadeIn  = Math.min(1, laser.timer / 0.12);
   const fadeOut = Math.min(1, (laser.duration - laser.timer) / 0.3);
   const alpha = Math.min(fadeIn, fadeOut);
 
+  // 粗细随 laserpower 等级增加
+  const laserWidthBonus = player.buffLevels.laserpower || 0;
+  const wScale = 1 + 0.18 * laserWidthBonus;
+
+  // 呼吸脉冲
+  const pulse = 0.88 + Math.sin(gameTime * 28) * 0.12;
+
   ctx.save();
   ctx.globalAlpha = alpha;
+  ctx.translate(ox, oy);
+  ctx.rotate(angle);
 
-  for(const t of laser.targets){
-    let target = null;
-    for(const e of enemies){
-      if(e.id === t.id && !e.dead){ target = e; break; }
-    }
-    if(!target) continue;
-
-    const dx = target.x - eyeX;
-    const dy = target.y - eyeY;
-    const dist = Math.hypot(dx, dy) || 1;
-    const ang = Math.atan2(dy, dx);
-
-    ctx.save();
-    ctx.translate(eyeX, eyeY);
-    ctx.rotate(ang);
-
-    const grd = ctx.createLinearGradient(0, 0, dist, 0);
-    grd.addColorStop(0,   'rgba(' + c1 + ', 0.65)');
-    grd.addColorStop(0.7, 'rgba(' + c1 + ', 0.35)');
-    grd.addColorStop(1,   'rgba(' + c1 + ', 0.7)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, -14, dist, 28);
-
-    const grd2 = ctx.createLinearGradient(0, 0, dist, 0);
-    grd2.addColorStop(0,   'rgba(' + c2 + ', 0.9)');
-    grd2.addColorStop(0.5, 'rgba(' + c2 + ', 0.7)');
-    grd2.addColorStop(1,   'rgba(' + c2 + ', 0.9)');
-    ctx.fillStyle = grd2;
-    ctx.fillRect(0, -6, dist, 12);
-
-    ctx.fillStyle = 'rgba(' + c3 + ', 1)';
-    ctx.fillRect(0, -2, dist, 4);
-
-    ctx.restore();
-
-    const tGlow = ctx.createRadialGradient(target.x, target.y, 0, target.x, target.y, 34);
-    tGlow.addColorStop(0,   'rgba(255,255,255,.75)');
-    tGlow.addColorStop(0.5, 'rgba(' + c1 + ',.45)');
-    tGlow.addColorStop(1,   'rgba(' + c1 + ',0)');
-    ctx.fillStyle = tGlow;
-    ctx.beginPath(); ctx.arc(target.x, target.y, 34, 0, TAU); ctx.fill();
+  // ===== 1. 外层光晕（宽度方向渐变，中心浓边缘淡） =====
+  {
+    const outerW = 52 * wScale * pulse;
+    const g = ctx.createLinearGradient(0, -outerW, 0, outerW);
+    g.addColorStop(0,    'rgba(' + c1 + ', 0)');
+    g.addColorStop(0.35, 'rgba(' + c1 + ', 0.20)');
+    g.addColorStop(0.5,  'rgba(' + c1 + ', 0.50)');
+    g.addColorStop(0.65, 'rgba(' + c1 + ', 0.20)');
+    g.addColorStop(1,    'rgba(' + c1 + ', 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, -outerW, L, outerW * 2);
   }
 
-  const pulse = 0.6 + Math.sin(gameTime * 25) * 0.4;
-  const eyeGlow = ctx.createRadialGradient(eyeX, eyeY, 0, eyeX, eyeY, 22);
-  eyeGlow.addColorStop(0,   'rgba(255,255,255,' + (0.95 * pulse) + ')');
-  eyeGlow.addColorStop(0.5, 'rgba(' + c1 + ',' + (0.65 * pulse) + ')');
-  eyeGlow.addColorStop(1,   'rgba(' + c1 + ',0)');
-  ctx.fillStyle = eyeGlow;
-  ctx.beginPath(); ctx.arc(eyeX, eyeY, 22, 0, TAU); ctx.fill();
+  // ===== 2. 中层亮束 =====
+  {
+    const midW = 24 * wScale * pulse;
+    const g = ctx.createLinearGradient(0, -midW, 0, midW);
+    g.addColorStop(0,   'rgba(' + c2 + ', 0)');
+    g.addColorStop(0.5, 'rgba(' + c2 + ', 0.95)');
+    g.addColorStop(1,   'rgba(' + c2 + ', 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, -midW, L, midW * 2);
+  }
+
+  // ===== 3. 核心白线 =====
+  {
+    const coreW = 7 * wScale * pulse;
+    const g = ctx.createLinearGradient(0, -coreW, 0, coreW);
+    g.addColorStop(0,   'rgba(255, 255, 255, 0.7)');
+    g.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
+    g.addColorStop(1,   'rgba(255, 255, 255, 0.7)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, -coreW, L, coreW * 2);
+  }
+
+  // ===== 4. 能量流动条纹 =====
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, -30 * wScale, L, 60 * wScale);
+  ctx.clip();
+  const flowSpeed = gameTime * 1600;
+  const flowLen = 110;
+  const flowPeriod = 280;
+  for(let i = 0; i < 8; i++){
+    const fx = ((flowSpeed + i * flowPeriod) % (L + flowLen)) - flowLen;
+    const fa = 0.30 + Math.sin(gameTime * 9 + i * 1.3) * 0.15;
+    const g = ctx.createLinearGradient(fx, 0, fx + flowLen, 0);
+    g.addColorStop(0,   'rgba(255,255,255,0)');
+    g.addColorStop(0.5, 'rgba(255,255,255,' + fa + ')');
+    g.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(fx, -24 * wScale, flowLen, 48 * wScale);
+  }
+  ctx.restore();
 
   ctx.restore();
+
+  // ===== 5. 发射端光球 =====
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const startPulse = 0.9 + Math.sin(gameTime * 22) * 0.1;
+  const startR = 42 * wScale * startPulse;
+  const sg = ctx.createRadialGradient(ox, oy, 0, ox, oy, startR);
+  sg.addColorStop(0,    'rgba(255, 255, 255, 1)');
+  sg.addColorStop(0.25, 'rgba(' + c2 + ', 0.9)');
+  sg.addColorStop(0.6,  'rgba(' + c1 + ', 0.45)');
+  sg.addColorStop(1,    'rgba(' + c1 + ', 0)');
+  ctx.fillStyle = sg;
+  ctx.beginPath();
+  ctx.arc(ox, oy, startR, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // ===== 6. 命中点光晕（每个被光束打到的敌人身上加爆闪） =====
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const beamHalf = 26 * wScale;
+  for(const e of enemies){
+    if(e.dead) continue;
+    const dx = e.x - ox, dy = e.y - oy;
+    const proj = dx * cosA + dy * sinA;
+    if(proj < 0 || proj > L) continue;
+    const perp = Math.abs(-dx * sinA + dy * cosA);
+    if(perp > e.r + beamHalf) continue;
+
+    const hitPulse = 0.75 + Math.sin(gameTime * 26 + e.id) * 0.25;
+    const hitR = e.r * 1.6 * hitPulse;
+    const hg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, hitR);
+    hg.addColorStop(0,   'rgba(255, 255, 255, 0.75)');
+    hg.addColorStop(0.4, 'rgba(' + c2 + ', 0.55)');
+    hg.addColorStop(1,   'rgba(' + c1 + ', 0)');
+    ctx.fillStyle = hg;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, hitR, 0, TAU);
+    ctx.fill();
+  }
+
   ctx.globalAlpha = 1;
 }
 
@@ -6245,6 +6645,102 @@ function drawPauseButton(){
   // icon_pause 素材自带圆角方形底，直接放大当按钮
   const btnSize = r * 1.9;
   UI.drawIcon(ctx, 'icon_pause', x - btnSize/2, y - btnSize/2, btnSize);
+}
+
+function drawOrbButton(){
+  const b = ORB_BTN;
+  const R = b.r;
+  const onCooldown = player.orbCooldown > 0;
+  const active = player.orbActiveTimer > 0;
+  const ready = !onCooldown && !active;
+  const pulse = 0.5 + Math.sin(gameTime * 8) * 0.5;
+
+  ctx.save();
+
+  // 外发光
+  if(ready || active){
+    const color = active ? '255,255,255' : '255, 176, 208';
+    ctx.strokeStyle = 'rgba(' + color + ',' + (0.6 - pulse * 0.35) + ')';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(b.x, b.y, R + 6 + pulse * 6, 0, TAU); ctx.stroke();
+  }
+
+  // 圆底
+  const bgGrd = ctx.createRadialGradient(b.x - R*0.35, b.y - R*0.35, R*0.1, b.x, b.y, R);
+  bgGrd.addColorStop(0, '#a04868');
+  bgGrd.addColorStop(0.6, '#602040');
+  bgGrd.addColorStop(1, '#2a0c18');
+  ctx.fillStyle = bgGrd;
+  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
+
+  // 冷却扇形（只有冷却期间显示）
+  if(player.orbCooldown > 0){
+    const cdP = Math.min(1, player.orbCooldown / ORB_COOLDOWN);
+    const startAngle = -Math.PI/2 + TAU * (1 - cdP);
+    const endAngle = -Math.PI/2 + TAU;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.arc(b.x, b.y, R, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.68)';
+    ctx.fill();
+  }
+
+  // 活动时环形倒计时
+  if(active){
+    const remainP = player.orbActiveTimer / ORB_DURATION;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(b.x, b.y, R + 2, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#ffb0d0';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, R + 2, -Math.PI/2 + TAU * (1 - remainP), -Math.PI/2 + TAU);
+    ctx.stroke();
+  }
+
+  // 边框
+  ctx.strokeStyle = active ? '#ffffff' : (ready ? '#ffb0d0' : 'rgba(180, 120, 150, 0.6)');
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
+
+  // 毛球图标
+  const iconColor = ready || active ? '#ffffff' : '#c090a8';
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  if(active) ctx.rotate(gameTime * 3);
+  ctx.fillStyle = iconColor;
+  ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
+  for(let i = 0; i < 8; i++){
+    const a = i * TAU / 8;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * 14, Math.sin(a) * 14, 4, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 状态文字
+  if(active){
+    drawUIText(player.orbActiveTimer.toFixed(1) + 's', b.x, b.y + R + 20, 'accent', { size: 18 });
+  } else if(onCooldown){
+    drawUIText(player.orbCooldown.toFixed(1) + 's', b.x, b.y + R + 20, 'muted', { size: 18 });
+  } else {
+    drawUIText('就绪', b.x, b.y + R + 20, 'accent', { size: 18 });
+  }
+
+  // 底部标签
+  const label = '毛球 (Q)';
+  ctx.save();
+  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
+  const tw = ctx.measureText(label).width;
+  rr(b.x - tw/2 - 9, b.y + R + 28, tw + 18, 26, 8);
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fill();
+  ctx.restore();
+  drawUIText(label, b.x, b.y + R + 46, ready || active ? 'body' : 'muted', { size: 18 });
+
+  ctx.restore();
 }
 
 function drawMissileButton(){
@@ -6975,27 +7471,35 @@ function drawHUD(){
   const line2Y = infoY + 72;
   const line3Y = infoY + 102;
 
-  const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
+  const isTutorial = (currentStage === 1);
+  const isStageMode = (currentStage >= 1);
 
-  // 第一行：第 N 关 / 第 N 波
-  const titleText = isTutorial
-    ? ('教学 · 第 ' + Math.max(1, waveInStage) + ' 波')
-    : ('第 ' + Math.max(1, wave) + ' 波');
-    drawUIText(titleText, infoCx, line1Y, 'body', { size: 26, strokeWidth: 5 });
+  let line1Text, line2Text, line3Text;
 
-    let subText;
-    if(isTutorial){
-      subText = '第 ' + Math.max(1, waveInStage) + ' / ' + STAGE_WAVES + ' 波';
-    } else {
-      const remainingThisWave = enemies.length + spawnQueue.length;
-      const killedThisWave = Math.max(0, waveTotal - remainingThisWave);
-      subText = '本波 ' + killedThisWave + ' / ' + waveTotal;
-    }
-    drawUIText(subText, infoCx, line2Y, 'success', { size: 20, strokeWidth: 4 });
-  
+  if(isStageMode){
+    // ===== 闯关模式（含教学关） =====
+    line1Text = '第 ' + currentStage + ' 关';
+
+    const totalWaves = isTutorial ? STAGE_WAVES : 3;
+    line2Text = Math.max(1, waveInStage) + ' / ' + totalWaves + ' 波';
+
+    const remainTotal = Math.max(0, stageTotalEnemies - stageKillCount);
+    line3Text = '剩余 ' + remainTotal;
+  } else {
+    // ===== 无尽模式 =====
+    line1Text = '第 ' + Math.max(1, wave) + ' 波';
+
+    const remainingThisWave = enemies.length + spawnQueue.length;
+    const killedThisWave = Math.max(0, waveTotal - remainingThisWave);
+    line2Text = '本波 ' + killedThisWave + ' / ' + waveTotal;
+
     const remainTotal = enemies.length + spawnQueue.length;
-    const remainText = '剩余 ' + remainTotal;
-    drawUIText(remainText, infoCx, line3Y, 'danger', { size: 20, strokeWidth: 4 });
+    line3Text = '剩余 ' + remainTotal;
+  }
+
+  drawUIText(line1Text, infoCx, line1Y, 'body',    { size: 26, strokeWidth: 5 });
+  drawUIText(line2Text, infoCx, line2Y, 'success', { size: 20, strokeWidth: 4 });
+  drawUIText(line3Text, infoCx, line3Y, 'danger',  { size: 20, strokeWidth: 4 });
 
   drawBuffTags();
   drawActiveItems();
@@ -7003,6 +7507,7 @@ function drawHUD(){
   drawJoystick(moveJoy, MOVE_BASE, '#7fe0a0', '移动');
   if(unlockedWeapons.missile && catBroTakenSkills.indexOf('missile') < 0) drawMissileButton();
   if(unlockedWeapons.laser && catBroTakenSkills.indexOf('laser') < 0)   drawLaserButton();
+  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0)       drawOrbButton();
   drawPauseButton();
   if(isAllWeaponsUnlocked()) drawAutoCastBtn();
   drawHelpQuickBtn();
@@ -7643,6 +8148,261 @@ function drawMenuCharacters(){
   drawMenuChar('enemy_runner',   W*0.95, gFront - 8,  200, 5.7);
 }
 
+// ================= 选关界面 =================
+// ===== 灰色星星缓存（只生成一次） =====
+let _greyStarCache = null;
+
+function getGreyStar(){
+  if(_greyStarCache) return _greyStarCache;
+  const img = UI.assets['icon_star'];
+  if(!img || !img.complete || img.naturalWidth === 0) return null;
+
+  const c = document.createElement('canvas');
+  c.width  = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const cctx = c.getContext('2d');
+
+  // ★ 优先用 filter 灰度：保留原图的黑描边和细节
+  cctx.filter = 'grayscale(1) brightness(0.7)';
+  const okFilter = (cctx.filter !== 'none' && cctx.filter !== '');
+
+  if(okFilter){
+    cctx.drawImage(img, 0, 0);
+    cctx.filter = 'none';
+  } else {
+    // 兜底：老浏览器不支持 filter → 叠色（黑边会被染灰，但至少是灰的）
+    cctx.drawImage(img, 0, 0);
+    cctx.globalCompositeOperation = 'source-atop';
+    cctx.fillStyle = 'rgba(100, 110, 120, 0.85)';
+    cctx.fillRect(0, 0, c.width, c.height);
+    cctx.globalCompositeOperation = 'source-over';
+  }
+
+  _greyStarCache = c;
+  return c;
+}
+
+function drawStarIcon(cx, cy, r, color, filled){
+  // ★ 点亮 → 原色素材；未点亮 → 灰色素材
+  const img = filled ? UI.assets['icon_star'] : getGreyStar();
+
+  if(img){
+    const sz = r * 2;
+    ctx.save();
+    ctx.globalAlpha = 1;                    // 灰度已由素材处理，不再降透明度
+    ctx.drawImage(img, cx - sz/2, cy - sz/2, sz, sz);
+    ctx.restore();
+    return;
+  }
+
+  // 素材没加载 → 兜底代码画
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.beginPath();
+  for(let i = 0; i < 5; i++){
+    const a = -Math.PI / 2 + i * TAU / 5;
+    const x1 = Math.cos(a) * r;
+    const y1 = Math.sin(a) * r;
+    const a2 = a + TAU / 10;
+    const x2 = Math.cos(a2) * r * 0.45;
+    const y2 = Math.sin(a2) * r * 0.45;
+    if(i === 0) ctx.moveTo(x1, y1);
+    else ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+  }
+  ctx.closePath();
+  if(filled){
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawStarRow(cx, cy, filled){
+  const total = 3;
+  const size = 38;
+  const gap = 2;
+  const totalW = total * size + (total - 1) * gap;
+  const startX = cx - totalW / 2 + size / 2;
+  for(let i = 0; i < total; i++){
+    const sx = startX + i * (size + gap);
+    drawStarIcon(sx, cy, size * 0.5, i < filled ? '#ffd24a' : 'rgba(150,170,190,0.55)', i < filled);
+  }
+}
+
+function drawStageCard(x, y, w, h, num, stars, unlocked){
+  const isCurrent = (unlocked && stars === 0 && num === stageProgress.unlockedMax);
+  const isDone = stars > 0;
+  const RADIUS = 22;   // ★ 卡片圆角
+
+  rr(x, y, w, h, RADIUS);
+  const grd = ctx.createLinearGradient(x, y, x, y + h);
+  if(!unlocked){
+    grd.addColorStop(0, 'rgba(50, 62, 72, 0.92)');
+    grd.addColorStop(1, 'rgba(26, 34, 42, 0.92)');
+  } else if(isDone){
+    grd.addColorStop(0, 'rgba(255, 248, 220, 0.98)');
+    grd.addColorStop(1, 'rgba(255, 220, 150, 0.98)');
+  } else {
+    grd.addColorStop(0, 'rgba(220, 240, 255, 0.98)');
+    grd.addColorStop(1, 'rgba(170, 210, 245, 0.98)');
+  }
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  let border = 'rgba(120, 160, 200, 0.7)';
+  if(!unlocked) border = 'rgba(80, 100, 120, 0.6)';
+  else if(isDone) border = '#ffb84a';
+  else if(isCurrent) border = '#7fe0a0';
+
+  ctx.strokeStyle = border;
+  ctx.lineWidth = isCurrent ? 3.5 : 2;
+  rr(x, y, w, h, RADIUS);
+  ctx.stroke();
+
+  const cx = x + w / 2;
+
+  // 统一文本样式和位置
+  drawUIText('第 ' + num + ' 关', cx, y + 46, 'body', { size: 26, strokeWidth: 4 });
+
+  // 星星：两种状态都显示
+  drawStarRow(cx, y + h - 32, unlocked ? stars : 0);
+}
+
+function drawStageSelectScreen(){
+  drawAppBackground();
+
+  const boxW = W - 60;
+  const boxH = 800;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2;
+
+  const info = drawDialogPanel(boxX, boxY, boxW, boxH, '关 卡 选 择', {
+    titleH: 76, titleSize: 32
+  });
+  stageSelectCloseRect = info.closeRect;
+
+  // ===== 网格区域 =====
+  const gridX = boxX + 28;
+  const gridY = boxY + 122;
+  const gridW = boxW - 56;
+  const gridH = boxH - 196;
+
+  const gapX = 12;
+  const gapY = 14;
+  const colCount = 3;
+
+  // ★ 卡片宽度自适应弹窗宽度，上限 148（原始尺寸）
+  const cellW = Math.min(158, Math.floor((gridW - gapX * (colCount - 1)) / colCount));
+  const cellH = 142;
+
+  const totalGridW = cellW * colCount + gapX * (colCount - 1);
+  const startX = gridX + (gridW - totalGridW) / 2;
+
+  const rowsTotal = Math.ceil(TOTAL_STAGES / colCount);
+  const contentH = rowsTotal * (cellH + gapY);
+  stageScrollMaxY = Math.max(0, contentH - gridH);
+  if(stageScrollY > stageScrollMaxY) stageScrollY = stageScrollMaxY;
+  if(stageScrollY < 0) stageScrollY = 0;
+
+  ctx.save();
+  ctx.beginPath();
+  rr(gridX, gridY, gridW, gridH, 22);   // ★ 圆角裁剪，和弹窗内壁对齐
+  ctx.clip();
+
+  stageCards = [];
+  for(let i = 0; i < TOTAL_STAGES; i++){
+    const num = i + 1;
+    const col = i % colCount;
+    const row = Math.floor(i / colCount);
+    const cx = startX + col * (cellW + gapX);
+    const cy = gridY + row * (cellH + gapY) - stageScrollY;
+
+    if(cy + cellH < gridY - 20 || cy > gridY + gridH + 20) continue;
+
+    const unlocked = num <= stageProgress.unlockedMax;
+    const stars = stageProgress.stars[num] || 0;
+    drawStageCard(cx, cy, cellW, cellH, num, stars, unlocked);
+
+    stageCards.push({ x: cx, y: cy, w: cellW, h: cellH, num, unlocked });
+  }
+  ctx.restore();
+
+  // 滚动提示
+  if(stageScrollMaxY > 0){
+    drawUIText('↕ 上下拖动查看全部关卡', W/2, boxY + boxH - 24, 'muted', { size: 13 });
+  } else {
+    drawUIText('选择一个关卡开始挑战', W/2, boxY + boxH - 24, 'muted', { size: 14 });
+  }
+}
+
+// ================= 关卡结算界面 =================
+function drawStageVictoryScreen(){
+  const info = stageVictoryInfo;
+  if(!info) return;
+
+  drawAppOverlay(0.88);
+
+  const boxW = W - 60;
+  const boxH = 620;
+  const boxX = (W - boxW) / 2;
+  const boxY = (H - boxH) / 2;
+
+  const titleText = info.isLast ? '全 部 通 关 ！' : ('第 ' + info.stageNum + ' 关 通 过');
+  drawDialogPanel(boxX, boxY, boxW, boxH, titleText, {
+    titleH: 80, titleSize: 32, noClose: true
+  });
+
+  // ===== 大星星 =====
+  const starSize = 110;
+  const starY = boxY + 200;
+  for(let i = 0; i < 3; i++){
+    const sx = W/2 + (i - 1) * (starSize + 10);
+    const filled = i < info.stars;
+    drawStarIcon(sx, starY, starSize * 0.5, null, filled);
+  }
+
+  // ===== 剩余生命 =====
+  drawUITextRich([
+    { text: '剩余生命 ' },
+    { text: Math.round(info.hpRatio * 100) + '%', colorKey: 'accent', gold: true }
+  ], W/2, boxY + 290, { size: 22 });
+
+  // ===== 星级评语 =====
+  const msg = info.stars >= 3 ? '完美通关！'
+            : info.stars === 2 ? '表现不错！'
+            : '惊险通关！';
+  drawUIText(msg, W/2, boxY + 340, 'title', {
+    size: 28,
+    gradient: UI_GRADIENT_GOLD,
+    glow: true,
+    glowColor: 'rgba(255, 210, 74, 0.75)',
+    glowSize: 16
+  });
+
+  // ===== 按钮 =====
+  stageVictoryBtnRects = [];
+
+  let by = boxY + boxH - 180;
+
+  if(!info.isLast){
+    const btn = { x: W/2, y: by, w: 300, h: 64 };
+    drawAppButton(btn, '下 一 关', '#7fe0a0', '#289858', { fontSize: 26 });
+    stageVictoryBtnRects.push({ x: btn.x - btn.w/2, y: btn.y - btn.h/2, w: btn.w, h: btn.h, action: 'next' });
+    by += 96;
+  }
+
+  {
+    const btn = { x: W/2, y: by, w: 300, h: 60 };
+    drawAppButton(btn, '返 回 选 关', '#7fb8ff', '#3878b8', { fontSize: 22 });
+    stageVictoryBtnRects.push({ x: btn.x - btn.w/2, y: btn.y - btn.h/2, w: btn.w, h: btn.h, action: 'back' });
+  }
+}
+
 // ================= 主菜单 =================
 function drawMainMenu(){
   drawAppBackground();
@@ -7748,6 +8508,10 @@ function drawBootScreen(){
 }
 
 // ================= 选猫界面 =================
+// 无尽模式是否已解锁（通过第 1 关）
+function isEndlessUnlocked(){
+  return (stageProgress.stars[1] || 0) > 0;
+}
 function drawCatSelectScreen(){
   drawAppBackground();
 
@@ -7869,8 +8633,14 @@ function drawCatSelectScreen(){
   }
 
   // 按钮
-  drawAppButton(CATCHOOSE_START_BTN, '开 始 游 戏', '#7fe0a0', '#289858', { fontSize: 30, pulse: true });
-  drawAppButton(CATCHOOSE_BACK_BTN,  '返 回',       '#7fb8ff', '#3878b8', { fontSize: 24 });
+  drawAppButton(CATCHOOSE_STAGE_BTN, '开 始 闯 关', '#7fe0a0', '#289858', { fontSize: 28, pulse: true });
+
+  // 无尽模式：通过第 1 关后才显示
+  if(isEndlessUnlocked()){
+    drawAppButton(CATCHOOSE_ENDLESS_BTN, '无 尽 模 式', '#ffd24a', '#c87820', { fontSize: 26 });
+  }
+
+  drawAppButton(CATCHOOSE_BACK_BTN, '返 回', '#7fb8ff', '#3878b8', { fontSize: 22 });
 }
 
 // ================= 游戏说明 =================
@@ -8169,16 +8939,20 @@ function drawConfirmRestart(){
 
   const btnW = 160, btnH = 60;
   const btnY = boxY + boxH - 60;
-  const gap  = 20;
 
-  drawAppButton(
-    { x: W/2 - btnW/2 - gap/2, y: btnY, w: btnW, h: btnH },
-    '取 消', '#7fb8ff', '#3878b8', { fontSize: 24 }
-  );
-  drawAppButton(
-    { x: W/2 + btnW/2 + gap/2, y: btnY, w: btnW, h: btnH },
-    '确 认', '#ff8fb0', '#c84870', { fontSize: 24 }
-  );
+  // ★ 动态更新全局常量，让点击检测用同一份坐标
+  CONFIRM_NO_BTN.x  = W/2 - btnW/2 - 10;
+  CONFIRM_NO_BTN.y  = btnY;
+  CONFIRM_NO_BTN.w  = btnW;
+  CONFIRM_NO_BTN.h  = btnH;
+
+  CONFIRM_YES_BTN.x = W/2 + btnW/2 + 10;
+  CONFIRM_YES_BTN.y = btnY;
+  CONFIRM_YES_BTN.w = btnW;
+  CONFIRM_YES_BTN.h = btnH;
+
+  drawAppButton(CONFIRM_NO_BTN,  '取 消', '#7fb8ff', '#3878b8', { fontSize: 24 });
+  drawAppButton(CONFIRM_YES_BTN, '确 认', '#ff8fb0', '#c84870', { fontSize: 24 });
 }
 function drawPauseOverlay(){
   drawAppOverlay(0.85);
@@ -8246,9 +9020,9 @@ function drawBuffSelect(){
 
   const n = buffChoices.length;
 
-  const CW = 196;
-  const CH = 352;
-  const GAP = 12;
+  const CW = 204;
+  const CH = 400;
+  const GAP = 14;
 
   // ★ 面板宽度始终按 3 张卡算，卡片居中显示
   const panelCardCount = 3;
@@ -8257,36 +9031,31 @@ function drawBuffSelect(){
   // 检查选项里是否有解锁卡（先判定，面板高度要用）
   const hasUnlockCard = buffChoices.some(c => c && c.isUnlock);
 
-  // ===== 面板尺寸 =====
-  const panelPad = 30;
-  const headerH = 175;
-  const panelW = panelTotalW + panelPad * 2;
-  const panelH = headerH + CH + (hasUnlockCard ? 190 : 100);
-  const panelX = (W - panelW) / 2;
-  const panelY = (H - panelH) / 2;
+  // ===== 全屏遮罩（去掉弹窗，卡片悬浮在背景上） =====
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+  ctx.fillRect(0, 0, W, H);
 
-  // ===== 紫条 + 深灰主体（无 X） =====
-  drawDialogPanel(panelX, panelY, panelW, panelH, '', {
-    titleH: 76, noClose: true
-  });
+  // ===== 标题横幅：副标题素材 banner_sub =====
+  const bannerW = 440;
+  const bannerH = 100;
+  const bannerX = (W - bannerW) / 2;
+  const bannerY = 300;
 
-  // ===== 标题（紫条上写文字） =====
-  const titleText = isSecondPick ? '✨ 暴击触发！ ✨' : ('第 ' + wave + ' 波清除');
-  drawUIText(titleText, W/2, panelY + 38 + 12, 'body', {
-    size: 30,
+  const bannerImg = UI.assets['banner_sub'];
+  if(bannerImg){
+    ctx.drawImage(bannerImg, bannerX, bannerY, bannerW, bannerH);
+  }
+
+  const titleText = '请选择一项强化';
+  drawUIText(titleText, W / 2, bannerY + bannerH / 2 + 8, 'body', {
+    size: 28,
     strokeWidth: 4
   });
 
-  // 副标题（主体内）
-  const subText = isSecondPick ? '再选一项强化！' : '请选择一项强化';
-  const subY = panelY + 120;
-
-  drawUIText(subText, W / 2, subY, 'body', { size: 22 });
-
   // ===== 卡片区域（居中） =====
   const cardAreaW = CW * n + GAP * (n - 1);
-  const sx = panelX + (panelW - cardAreaW) / 2;
-  const sy = panelY + headerH + 10;
+  const sx = (W - cardAreaW) / 2;
+  const sy = bannerY + bannerH + 46;
 
   buffCards = [];
 
@@ -8321,15 +9090,15 @@ function drawBuffSelect(){
     const wtype = BUFF_WEAPON_TYPE[b.id];
     const wname = b.isUnlock ? '解锁' : (WEAPON_TYPE_NAMES[wtype] || '通用');
 
-    // ==================== 卡片底 ====================
-    rr(x, y, CW, CH, 16);
+    // ==================== 卡片底（深色） ====================
+    rr(x, y, CW, CH, 18);
     const grd = ctx.createLinearGradient(x, y, x, y + CH);
-    grd.addColorStop(0, rc.bgTop);
-    grd.addColorStop(1, rc.bgBot);
+    grd.addColorStop(0, 'rgba(50, 62, 74, 0.98)');
+    grd.addColorStop(1, 'rgba(20, 28, 38, 0.98)');
     ctx.fillStyle = grd;
     ctx.fill();
 
-    // 外发光
+    // 外发光（按稀有度）
     ctx.save();
     if(b.isUnlock){
       const boost = 0.5 + Math.sin(gameTime * 6) * 0.5;
@@ -8343,104 +9112,28 @@ function drawBuffSelect(){
       ctx.strokeStyle = rc.border;
       ctx.lineWidth = 3;
     }
-    rr(x, y, CW, CH, 16);
+    rr(x, y, CW, CH, 18);
     ctx.stroke();
     ctx.restore();
 
-    // ==================== 塔罗风装饰 ====================
-    rr(x + 5, y + 5, CW - 10, CH - 10, 12);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-
-    rr(x + 8, y + 8, CW - 16, CH - 16, 10);
-    ctx.strokeStyle = rc.border;
-    ctx.globalAlpha = 0.55;
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    const drawDiamond = (dx, dy, size, col) => {
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(dx, dy - size);
-      ctx.lineTo(dx + size, dy);
-      ctx.lineTo(dx, dy + size);
-      ctx.lineTo(dx - size, dy);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    };
-    const cornerColor = rc.border;
-    const cs = 5;
-    drawDiamond(x + 14, y + 14, cs, cornerColor);
-    drawDiamond(x + CW - 14, y + 14, cs, cornerColor);
-    drawDiamond(x + 14, y + CH - 14, cs, cornerColor);
-    drawDiamond(x + CW - 14, y + CH - 14, cs, cornerColor);
-
-    // 顶部菱形吊坠
-    const topCx = x + CW / 2;
-    ctx.fillStyle = cornerColor;
-    ctx.beginPath();
-    ctx.moveTo(topCx, y - 6);
-    ctx.lineTo(topCx + 8, y + 2);
-    ctx.lineTo(topCx, y + 10);
-    ctx.lineTo(topCx - 8, y + 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 底部菱形吊坠
-    ctx.fillStyle = cornerColor;
-    ctx.beginPath();
-    ctx.moveTo(topCx, y + CH + 6);
-    ctx.lineTo(topCx + 8, y + CH - 2);
-    ctx.lineTo(topCx, y + CH - 10);
-    ctx.lineTo(topCx - 8, y + CH - 2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 左右凸起
-    const drawSideBump = (bx, dir) => {
-      ctx.fillStyle = cornerColor;
-      ctx.beginPath();
-      ctx.moveTo(bx, y + CH / 2 - 8);
-      ctx.lineTo(bx + dir * 6, y + CH / 2);
-      ctx.lineTo(bx, y + CH / 2 + 8);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    };
-    drawSideBump(x, 1);
-    drawSideBump(x + CW, -1);
-
-    // 顶部高光
+    // 顶部高光（淡）
     ctx.save();
-    rr(x, y, CW, 8, 16);
+    rr(x, y, CW, 8, 18);
     ctx.clip();
     const hlGrd = ctx.createLinearGradient(x, y, x + CW, y);
-    hlGrd.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
-    hlGrd.addColorStop(0.5, 'rgba(255, 255, 255, 0.85)');
-    hlGrd.addColorStop(1, 'rgba(255, 255, 255, 0.2)');
+    hlGrd.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
+    hlGrd.addColorStop(0.5, 'rgba(255, 255, 255, 0.22)');
+    hlGrd.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
     ctx.fillStyle = hlGrd;
-    ctx.fillRect(x, y, CW, 6);
+    ctx.fillRect(x, y, CW, 5);
     ctx.restore();
 
     // ==================== 推荐标签 ====================
     if(isRecommended(b.id)){
-      const tagW = 72;
-      const tagH = 28;
-      const tagX = x + CW - tagW - 4;
-      const tagY = y + 4;
+      const tagW = 76;
+      const tagH = 30;
+      const tagX = x + CW - tagW - 6;
+      const tagY = y + 6;
       const tagPulse = 0.5 + Math.sin(gameTime * 5) * 0.5;
 
       ctx.save();
@@ -8468,40 +9161,37 @@ function drawBuffSelect(){
       ctx.textBaseline = 'alphabetic';
     }
 
-    // ==================== 区域 1：标题（颜色按稀有度） ====================
-    const sec1Bot = y + 82;
+    // ==================== 区域 1：标题（金色，统一风格） ====================
+    const sec1Bot = y + 96;
 
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-    const nameY = y + 38;
+    drawUIText(b.name, x + CW / 2, y + 48, 'title', {
+      size: 26,
+      gradient: UI_GRADIENT_GOLD,
+      glow: true,
+      glowColor: 'rgba(255, 210, 74, 0.55)',
+      glowSize: 10
+    });
+
+    drawUIText(
+      b.isUnlock ? '解锁新武器' : ('Lv.' + lv + ' / ' + b.max),
+      x + CW / 2, y + 80, 'muted', { size: 16 }
+    );
+
+    // 分割线 1（稀有度色）
     ctx.save();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.strokeText(b.name, x + CW / 2, nameY);
-    ctx.fillStyle = rc.title;
-    ctx.fillText(b.name, x + CW / 2, nameY);
-    ctx.restore();
-
-    ctx.fillStyle = '#5a6a88';
-    ctx.font = 'bold 15px "Microsoft YaHei",sans-serif';
-    if(b.isUnlock){
-      ctx.fillText('解锁新武器', x + CW / 2, y + 66);
-    } else {
-      ctx.fillText('Lv.' + lv + ' / ' + b.max, x + CW / 2, y + 66);
-    }
-
-    // 分割线 1
-    ctx.strokeStyle = 'rgba(120, 180, 220, 0.55)';
+    ctx.strokeStyle = rc.border;
+    ctx.globalAlpha = 0.4;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(x + 24, sec1Bot);
-    ctx.lineTo(x + CW - 24, sec1Bot);
+    ctx.moveTo(x + 28, sec1Bot);
+    ctx.lineTo(x + CW - 28, sec1Bot);
     ctx.stroke();
+    ctx.restore();
 
     // ==================== 区域 2：图标 + 右下角武器类型标签 ====================
-    const sec2Bot = y + 200;
+    const sec2Bot = y + 248;
     const iconCy = (sec1Bot + sec2Bot) / 2;
-    const iconR = 44;
+    const iconR = 48;
 
     // ★ 按稀有度选底框素材
     const frameKey = rarity === 'purple' ? 'frame_purple'
@@ -8512,8 +9202,8 @@ function drawBuffSelect(){
 
     // 右下角小标签
     {
-      const tagW = 52;
-      const tagH = 22;
+      const tagW = 56;
+      const tagH = 24;
       const tagCx = x + CW / 2 + iconR * 0.65;
       const tagCy = iconCy + iconR * 0.65;
       const tagX = tagCx - tagW / 2;
@@ -8535,41 +9225,44 @@ function drawBuffSelect(){
       ctx.textBaseline = 'alphabetic';
     }
 
-    // 分割线 2
-    ctx.strokeStyle = 'rgba(120, 180, 220, 0.55)';
+    // 分割线 2（稀有度色）
+    ctx.save();
+    ctx.strokeStyle = rc.border;
+    ctx.globalAlpha = 0.4;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(x + 24, sec2Bot);
-    ctx.lineTo(x + CW - 24, sec2Bot);
+    ctx.moveTo(x + 28, sec2Bot);
+    ctx.lineTo(x + CW - 28, sec2Bot);
     ctx.stroke();
+    ctx.restore();
 
-    // ==================== 区域 3：描述底框 ====================
-    const boxTop = sec2Bot + 8;
-    const boxLeft = x + 10;
-    const boxRight = x + CW - 10;
-    const boxBottom = y + CH - 10;
+    // ==================== 区域 3：描述底框（深色） ====================
+    const boxTop = sec2Bot + 10;
+    const boxLeft = x + 14;
+    const boxRight = x + CW - 14;
+    const boxBottom = y + CH - 12;
 
     rr(boxLeft, boxTop, boxRight - boxLeft, boxBottom - boxTop, 10);
-    ctx.fillStyle = 'rgba(200, 208, 215, 0.9)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(130, 160, 185, 0.55)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
     ctx.lineWidth = 1;
     rr(boxLeft, boxTop, boxRight - boxLeft, boxBottom - boxTop, 10);
     ctx.stroke();
 
-    const descAreaY = boxTop + 26;
-    const descAreaW = boxRight - boxLeft - 12;
+    const descAreaY = boxTop + 30;
+    const descAreaW = boxRight - boxLeft - 16;
     const descCx = (boxLeft + boxRight) / 2;
 
     const descLines = drawRichWrappedTextCenter(
-      b.desc, descCx, descAreaY, descAreaW, 24, 2, '#1a3a52', 19
+      b.desc, descCx, descAreaY, descAreaW, 26, 2, '#dfe9e3', 19
     );
 
     const previewText = getBuffPreviewText(b.id, lv);
     if(previewText){
-      const previewY = descAreaY + descLines * 24 + 12;
+      const previewY = descAreaY + descLines * 26 + 14;
       drawRichWrappedTextCenter(
-        previewText, descCx, previewY, descAreaW, 24, 2, '#c87820', 19
+        previewText, descCx, previewY, descAreaW, 26, 2, '#ffd24a', 19
       );
     }
 
@@ -8666,13 +9359,18 @@ function drawDeadScreen(){
   drawDamageStats(W/2, boxY + 210, false);
 
   // 两个按钮左右并排
+  const leftLabel  = (gameMode === 'stage') ? '返回选关' : '退出游戏';
+  const rightLabel = '重新开始';
+  const leftColor  = (gameMode === 'stage') ? '#7fb8ff' : '#ff8fb0';
+  const leftText   = (gameMode === 'stage') ? '#3878b8' : '#c84870';
+
   drawAppButton(
     { x: W/2 - 105, y: boxY + boxH - 90, w: 180, h: 64 },
-    '退出游戏', '#ff8fb0', '#c84870', { fontSize: 22 }
+    leftLabel, leftColor, leftText, { fontSize: 22 }
   );
   drawAppButton(
     { x: W/2 + 105, y: boxY + boxH - 90, w: 180, h: 64 },
-    '重新开始', '#7fe0a0', '#289858', { fontSize: 22 }
+    rightLabel, '#7fe0a0', '#289858', { fontSize: 22 }
   );
 
   drawUIText('按 R 也可重开', W/2, boxY + boxH - 18, 'muted', { size: 15 });
@@ -9643,6 +10341,7 @@ function render(){
   if(state === 'boot'){ drawBootScreen(); return; }
   if(state === 'menu'){ drawMainMenu(); return; }
   if(state === 'catselect'){ drawCatSelectScreen(); return; }
+  if(state === 'stageSelect'){ drawStageSelectScreen(); return; }
   if(state === 'help'){ drawHelpScreen(); return; }
   if(state === 'leaderboard' && lbFrom === 'menu'){ drawLeaderboardScreen(); return; }
 
@@ -9789,7 +10488,7 @@ function render(){
   else if(state === 'confirm'){ drawHUD(); drawPauseOverlay(); drawConfirmRestart(); }
   else if(state === 'leaderboard'){ drawLeaderboardScreen(); }
   else if(state === 'victory'){ drawVictoryScreen(); }
-  else if(state === 'stageclear'){ drawHUD(); drawStageClearScreen(); }
+  else if(state === 'stageVictory'){ drawStageVictoryScreen(); }
   else {
     drawHUD();
     if(state === 'dead') drawDeadScreen();
@@ -9818,6 +10517,7 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 
+loadStageProgress();
 loadLeaderboard();
 loadCatPref();
 gameTime = 0;
