@@ -126,8 +126,8 @@ const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 1000, w: 400, h: 96 };   // 无尽模
 const CATCHOOSE_BACK_BTN    = { x: W/2, y: 1120, w: 400, h: 96 };
 // 两张猫卡片的矩形（用于点击检测）
 const CAT_CARD_RECTS = [
-  { x: 60,  y: 220, w: 280, h: 500, key: 'mimi' },
-  { x: 380, y: 220, w: 280, h: 500, key: 'hart' }
+  { x: 60,  y: 400, w: 280, h: 400, key: 'mimi' },
+  { x: 380, y: 400, w: 280, h: 400, key: 'hart' }
 ];
 
 function loadCatPref(){
@@ -282,7 +282,16 @@ const SPRITES = {
 
   // ★ 新增：战斗背景 / 菜单背景
   bg_battle: { img: null, loaded: false },
-  bg_menu:   { img: null, loaded: false }
+  bg_menu:   { img: null, loaded: false },
+
+  btn_start:   { img: null, loaded: false },
+  btn_history: { img: null, loaded: false },
+  btn_help:    { img: null, loaded: false },
+
+  btn_plate_red:    { img: null, loaded: false },
+  btn_plate_yellow: { img: null, loaded: false },
+  btn_plate_blue:   { img: null, loaded: false },
+  btn_plate_green:  { img: null, loaded: false }
 };
 
 // ===== 背景配置 =====
@@ -321,7 +330,7 @@ for(const k of ENEMY_SPRITE_KEYS){
   SPRITES['enemy_' + k] = { img: null, loaded: false };
 }
 
-const CAT_LOCAL_PATH = 'images/cat.png';
+const CAT_LOCAL_PATH = 'images/cat.webp';
 const GRASS_LOCAL_PATH = 'images/grass.png';
 let grassPattern = null;
 
@@ -365,16 +374,16 @@ function initSprites(){
   });
 
   // 两只可选猫
-  loadImage('images/cat_mimi.png', (img, ok) => {
+  loadImage('images/cat_mimi.webp', (img, ok) => {
     if(ok){ SPRITES.cat_mimi.img = img; SPRITES.cat_mimi.loaded = true; }
   });
-  loadImage('images/cat_hart.png', (img, ok) => {
+  loadImage('images/cat_hart.webp', (img, ok) => {
     if(ok){ SPRITES.cat_hart.img = img; SPRITES.cat_hart.loaded = true; }
   });
-  loadImage('images/catbro.png', (img, ok) => {
+  loadImage('images/catbro.webp', (img, ok) => {
     if(ok){ SPRITES.catbro.img = img; SPRITES.catbro.loaded = true; }
   });
-  loadImage('images/catbro2.png', (img, ok) => {
+  loadImage('images/catbro2.webp', (img, ok) => {
     if(ok){ SPRITES.catbro2.img = img; SPRITES.catbro2.loaded = true; }
   });
 
@@ -391,26 +400,40 @@ function initSprites(){
     if(ok){ SPRITES.bg_beach.img = img; SPRITES.bg_beach.loaded = true; }
   });
 
-  // ★ 新增：bg_battle.png / bg_menu.png
-  loadImage('images/bg_battle.png', (img, ok) => {
+  // ★ 新增：bg_battle.webp / bg_menu.webp
+  loadImage('images/bg_battle.webp', (img, ok) => {
     if(ok){ SPRITES.bg_battle.img = img; SPRITES.bg_battle.loaded = true; }
   });
-  loadImage('images/bg_menu.png', (img, ok) => {
+  loadImage('images/bg_menu.webp', (img, ok) => {
     if(ok){ SPRITES.bg_menu.img = img; SPRITES.bg_menu.loaded = true; }
   });
+  // ★ 主菜单 3 个按钮（带文字位图）
+  loadImage('images/ui/btn_start.png', (img, ok) => {
+    if(ok){ SPRITES.btn_start.img = img; SPRITES.btn_start.loaded = true; }
+  });
+  loadImage('images/ui/btn_history.png', (img, ok) => {
+    if(ok){ SPRITES.btn_history.img = img; SPRITES.btn_history.loaded = true; }
+  });
+  loadImage('images/ui/btn_help.png', (img, ok) => {
+    if(ok){ SPRITES.btn_help.img = img; SPRITES.btn_help.loaded = true; }
+  });
 
-  // loadImage('images/bg_roof.png', (img, ok) => {
-  //   if(ok){ SPRITES.bg_roof.img = img; SPRITES.bg_roof.loaded = true; }
-  // });
-  // loadImage('images/bg_concrete.png', (img, ok) => {
-  //   if(ok){ SPRITES.bg_concrete.img = img; SPRITES.bg_concrete.loaded = true; }
-  // });
-  // loadImage('images/bg_grass_night.png', (img, ok) => {
-  //   if(ok){ SPRITES.bg_grass_night.img = img; SPRITES.bg_grass_night.loaded = true; }
-  // });
+  // ★ 通用按钮底板（空底，三段切 + 代码文字）
+  loadImage('images/ui/btn_plate_red.png', (img, ok) => {
+    if(ok){ SPRITES.btn_plate_red.img = img; SPRITES.btn_plate_red.loaded = true; }
+  });
+  loadImage('images/ui/btn_plate_yellow.png', (img, ok) => {
+    if(ok){ SPRITES.btn_plate_yellow.img = img; SPRITES.btn_plate_yellow.loaded = true; }
+  });
+  loadImage('images/ui/btn_plate_blue.png', (img, ok) => {
+    if(ok){ SPRITES.btn_plate_blue.img = img; SPRITES.btn_plate_blue.loaded = true; }
+  });
+  loadImage('images/ui/btn_plate_green.png', (img, ok) => {
+    if(ok){ SPRITES.btn_plate_green.img = img; SPRITES.btn_plate_green.loaded = true; }
+  });
 
   for(const k of ENEMY_SPRITE_KEYS){
-    loadImage('images/enemy_' + k + '.png', (img, ok) => {
+    loadImage('images/enemy_' + k + '.webp', (img, ok) => {
       if(ok){
         SPRITES['enemy_' + k].img = img;
         SPRITES['enemy_' + k].loaded = true;
@@ -1896,16 +1919,6 @@ function onPointerDown(e){
        p.y >= rs.y - rs.h/2 && p.y <= rs.y + rs.h/2){
       state = 'playing';
       last = performance.now();
-      return;
-    }
-    // 排行榜
-    const lb = PAUSE_LB_BTN;
-    if(p.x >= lb.x - lb.w/2 && p.x <= lb.x + lb.w/2 &&
-       p.y >= lb.y - lb.h/2 && p.y <= lb.y + lb.h/2){
-      lbFrom = 'paused';
-      state = 'leaderboard';
-      lbBuffPopup = -1;
-      lbPopupCloseRect = null;
       return;
     }
 
@@ -5178,7 +5191,7 @@ function drawGroundDecoration(d){
 }
 
 function drawGround(){
-  // ★ 优先用 bg_battle.png 铺满整个 WORLD
+  // ★ 优先用 bg_battle.webp 铺满整个 WORLD
   const battleSpr = SPRITES.bg_battle;
   if(battleSpr && battleSpr.loaded && battleSpr.img){
     const bg = battleSpr.img;
@@ -7956,14 +7969,31 @@ function drawCutePoster(){
 
 // 完整可爱背景：天空 + 云 + 太阳 + 山丘 + 花瓣 + 暗角
 function drawAppBackground(){
-  // ★ 优先用 bg_menu.png
   const menuSpr = SPRITES.bg_menu;
   if(menuSpr && menuSpr.loaded && menuSpr.img){
-    ctx.drawImage(menuSpr.img, 0, 0, W, H);
+    const img = menuSpr.img;
+    const imgRatio    = img.width / img.height;
+    const screenRatio = W / H;
+
+    let drawW, drawH, dx, dy;
+    if(imgRatio > screenRatio){
+      // 图更宽 → 按高度适配，左右裁掉
+      drawH = H;
+      drawW = H * imgRatio;
+      dx = (W - drawW) / 2;
+      dy = 0;
+    } else {
+      // 图更高 → 按宽度适配，上下裁掉
+      drawW = W;
+      drawH = W / imgRatio;
+      dx = 0;
+      dy = (H - drawH) / 2;
+    }
+    ctx.drawImage(img, dx, dy, drawW, drawH);
     return;
   }
 
-  // ===== 兜底：简单渐变（已去掉云/太阳/山丘/花瓣/光晕） =====
+  // ===== 兜底：简单渐变 =====
   const skyGrd = ctx.createLinearGradient(0, 0, 0, H);
   skyGrd.addColorStop(0,   '#ffe8f2');
   skyGrd.addColorStop(0.5, '#fff5e0');
@@ -7988,13 +8018,91 @@ function drawAppOverlay(alpha){
 
 // 统一可爱按钮
 // opts: { fontSize, animIdx, pulse }
+
+// ================= 三段切按钮底板 =================
+// 布局：[左侧装饰] [中间拉伸] [右侧装饰]
+// 要求：按钮宽度 >= 左右两段宽度之和，否则退化为整体拉伸
+function drawStyledButton(img, x, y, w, h){
+  if(!img) return;
+  const iw = img.width;
+  const ih = img.height;
+
+  // 左右两段占源图宽度比例（覆盖圆角 + 石块/草丛装饰）
+  const sideRatio = 0.25;
+  const sSrc = Math.min(iw * sideRatio, ih * 0.8);
+  const sDst = sSrc * (h / ih);
+
+  // 按钮太窄 → 直接整体拉伸
+  if(sDst * 2 >= w){
+    ctx.drawImage(img, 0, 0, iw, ih, x, y, w, h);
+    return;
+  }
+
+  // 左段
+  ctx.drawImage(img, 0, 0, sSrc, ih, x, y, sDst, h);
+  // 中段（横向拉伸）
+  ctx.drawImage(img, sSrc, 0, iw - sSrc * 2, ih,
+                x + sDst, y, w - sDst * 2, h);
+  // 右段
+  ctx.drawImage(img, iw - sSrc, 0, sSrc, ih,
+                x + w - sDst, y, sDst, h);
+}
+
+// 颜色 → 底板 key 映射
+function pickPlateKey(borderColor){
+  if(borderColor === '#7fb8ff' || borderColor === '#3878b8') return 'btn_plate_blue';
+  if(borderColor === '#ff8fb0' || borderColor === '#c84870') return 'btn_plate_red';
+  if(borderColor === '#ffb84a' || borderColor === '#c87820') return 'btn_plate_yellow';
+  if(borderColor === '#7fe0a0' || borderColor === '#289858') return 'btn_plate_green';
+  return 'btn_plate_yellow';
+}
+
+// ================= 按钮文字（米黄 + 深棕描边，参考主菜单按钮风格） =================
+function drawButtonLabel(text, cx, cy, size){
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold ' + size + 'px "Microsoft YaHei",sans-serif';
+  ctx.lineJoin = 'round';
+
+  // 1. 底部投影（往下偏移，制造立体感）
+  ctx.lineWidth = Math.max(4, size * 0.24);
+  ctx.strokeStyle = 'rgba(30, 10, 5, 0.85)';
+  ctx.strokeText(text, cx, cy + size * 0.07);
+
+  // 2. 主描边：深棕
+  ctx.lineWidth = Math.max(3.5, size * 0.18);
+  ctx.strokeStyle = '#3a1a08';
+  ctx.strokeText(text, cx, cy);
+
+  // 3. 填充：米黄三色渐变（上亮下暖）
+  const grd = ctx.createLinearGradient(cx, cy - size * 0.55, cx, cy + size * 0.45);
+  grd.addColorStop(0,    '#fffbe8');
+  grd.addColorStop(0.55, '#ffe8b8');
+  grd.addColorStop(1,    '#e8b868');
+  ctx.fillStyle = grd;
+  ctx.fillText(text, cx, cy);
+
+  ctx.restore();
+}
+
 function drawAppButton(b, text, borderColor, textColor, opts){
-  // 根据边框颜色，映射到对应的按钮素材
+  // 优先用新空底板
+  const plateKey = pickPlateKey(borderColor);
+  const spr = SPRITES[plateKey];
+  if(spr && spr.loaded && spr.img){
+    drawStyledButton(spr.img, b.x - b.w/2, b.y - b.h/2, b.w, b.h);
+
+    const fontSize = (opts && opts.fontSize) || 24;
+    drawButtonLabel(text, b.x, b.y, fontSize);
+    return;
+  }
+
+  // 兜底：老九宫格按钮
   let btnKey = 'btn_yellow';
   if(borderColor === '#7fb8ff') btnKey = 'btn_blue';
   else if(borderColor === '#ff8fb0' || borderColor === '#c84870') btnKey = 'btn_red';
   else if(borderColor === '#7fe0a0') btnKey = 'btn_green';
-
   UI.drawButton(ctx, b.x - b.w/2, b.y - b.h/2, b.w, b.h, text, btnKey, opts && opts.fontSize || 24);
 }
 
@@ -8170,37 +8278,9 @@ function drawMenuCharacters(){
 }
 
 // ================= 选关界面 =================
-// ===== 灰色星星缓存（只生成一次） =====
-let _greyStarCache = null;
-
+// ===== 未点亮星星：直接用空星素材 =====
 function getGreyStar(){
-  if(_greyStarCache) return _greyStarCache;
-  const img = UI.assets['icon_star'];
-  if(!img || !img.complete || img.naturalWidth === 0) return null;
-
-  const c = document.createElement('canvas');
-  c.width  = img.naturalWidth;
-  c.height = img.naturalHeight;
-  const cctx = c.getContext('2d');
-
-  // ★ 优先用 filter 灰度：保留原图的黑描边和细节
-  cctx.filter = 'grayscale(1) brightness(0.7)';
-  const okFilter = (cctx.filter !== 'none' && cctx.filter !== '');
-
-  if(okFilter){
-    cctx.drawImage(img, 0, 0);
-    cctx.filter = 'none';
-  } else {
-    // 兜底：老浏览器不支持 filter → 叠色（黑边会被染灰，但至少是灰的）
-    cctx.drawImage(img, 0, 0);
-    cctx.globalCompositeOperation = 'source-atop';
-    cctx.fillStyle = 'rgba(100, 110, 120, 0.85)';
-    cctx.fillRect(0, 0, c.width, c.height);
-    cctx.globalCompositeOperation = 'source-over';
-  }
-
-  _greyStarCache = c;
-  return c;
+  return UI.assets['icon_star_empty'] || null;
 }
 
 function drawStarIcon(cx, cy, r, color, filled){
@@ -8479,22 +8559,83 @@ function drawOneCurrencyBar(x, y, w, h, iconKey, text, borderColor){
   });
 }
 
+// ================= 主菜单位图按钮 =================
+// 三个按钮共用同一宽度（400），高度按各自比例算
+// 从底部往上排，间距 20
+function layoutMenuButtons(){
+  const MARGIN_BOTTOM = 120;
+  const GAP = 16;
+
+  const widths = {
+    btn_start:   450,
+    btn_history: 300,
+    btn_help:    300
+  };
+
+  const keys = ['btn_start', 'btn_history', 'btn_help'];
+  const rows = [];
+
+  for(const k of keys){
+    const spr = SPRITES[k];
+    const wTarget = widths[k] || 300;
+    let h = 96;
+    if(spr && spr.loaded && spr.img){
+      h = wTarget * (spr.img.height / spr.img.width);
+    }
+    rows.push({ key: k, w: wTarget, h: h });
+  }
+
+  let totalH = 0;
+  for(const r of rows) totalH += r.h;
+  totalH += GAP * (rows.length - 1);
+
+  let cy = H - MARGIN_BOTTOM - totalH;
+  const rects = [MENU_START_BTN, MENU_LB_BTN, MENU_HELP_BTN];
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    const rect = rects[i];
+    rect.x = W/2;
+    rect.y = cy + r.h / 2;
+    rect.w = r.w;
+    rect.h = r.h;
+    cy += r.h + GAP;
+  }
+}
+
+function drawMenuSpriteButton(b, sprKey){
+  const spr = SPRITES[sprKey];
+
+  if(!spr || !spr.loaded || !spr.img){
+    const fallback = {
+      btn_start:   ['开 始 游 戏', '#ff8fb0', '#c84870'],
+      btn_history: ['历 史 战 绩', '#ffb84a', '#c87820'],
+      btn_help:    ['游 戏 说 明', '#7fb8ff', '#3878b8']
+    };
+    const f = fallback[sprKey] || ['按 钮', '#ff8fb0', '#c84870'];
+    drawAppButton(b, f[0], f[1], f[2], { fontSize: 30, pulse: true });
+    return;
+  }
+
+  const img = spr.img;
+  const dx = b.x - b.w / 2;
+  const dy = b.y - b.h / 2;
+  ctx.drawImage(img, dx, dy, b.w, b.h);
+}
+
 // ================= 主菜单 =================
 function drawMainMenu(){
-  drawAppBackground();
-  drawCuteTitle(W/2, 118);
-  drawUIText('末世鼠潮 · 猫咪反击战', W/2, 162, 'muted', { size: 22 });
+  drawAppBackground();     // cover 铺满背景
 
+  // 1. 右上角货币栏
+  drawCurrencyBar();
 
-  // 角色（猫 + 怪物）
-  drawMenuCharacters();
+  // 2. 三个位图按钮（自适应位置 + 大小）
+  layoutMenuButtons();
+  drawMenuSpriteButton(MENU_START_BTN,   'btn_start');
+  drawMenuSpriteButton(MENU_LB_BTN,      'btn_history');
+  drawMenuSpriteButton(MENU_HELP_BTN,    'btn_help');
 
-  // 按钮
-  drawMenuButton(MENU_START_BTN, '开 始 游 戏', '#ff8fb0', '#c84870', 0);
-  drawMenuButton(MENU_LB_BTN,    '历 史 战 绩', '#ffb84a', '#c87820', 1);
-  drawMenuButton(MENU_HELP_BTN,  '游 戏 说 明', '#7fb8ff', '#3878b8', 2);
-
-  // 隐藏操作反馈 toast
+  // 3. 隐藏操作反馈 toast
   if(menuToast.life > 0){
     const a = Math.min(1, menuToast.life / 0.4);
     ctx.save();
@@ -8591,16 +8732,21 @@ function isEndlessUnlocked(){
 }
 function drawCatSelectScreen(){
   drawAppBackground();
+
+  // ★ 半透明遮罩：压暗背景海报，让 UI 更清晰
+  ctx.fillStyle = 'rgba(8, 14, 22, 0.55)';
+  ctx.fillRect(0, 0, W, H);
+
   drawCurrencyBar();
-  drawAppTitle('选 择 你 的 猫 咪', W/2, 100, 42);
+  drawAppTitle('选 择 你 的 猫 咪', W/2, 300, 42);
 
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
   ctx.lineWidth = 4;
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeText('两只猫属性完全相同，只有样子不同', W/2, 140);
+  ctx.strokeText('两只猫属性完全相同，只有样子不同', W/2, 380);
   ctx.fillStyle = '#d878a0';
-  ctx.fillText('两只猫属性完全相同，只有样子不同', W/2, 140);
+  ctx.fillText('两只猫属性完全相同，只有样子不同', W/2, 380);
 
   // 两张卡片
   for(const card of CAT_CARD_RECTS){
@@ -8640,8 +8786,8 @@ function drawCatSelectScreen(){
     }
 
     // 猫图
-    const imgCy = card.y + 190;
-    const imgSize = 230;
+    const imgCy = card.y + 160;
+    const imgSize = 200;
     // 呼吸
     const breath = 1 + Math.sin(menuTime * 2 + (card.key === 'mimi' ? 0 : 1.5)) * 0.03;
     // 光晕
@@ -8715,6 +8861,11 @@ function drawCatSelectScreen(){
   // 无尽模式：通过第 1 关后才显示
   if(isEndlessUnlocked()){
     drawAppButton(CATCHOOSE_ENDLESS_BTN, '无 尽 模 式', '#ffd24a', '#c87820', { fontSize: 30 });
+    // 无尽按钮显示时，"返回"在第三行
+    CATCHOOSE_BACK_BTN.y = 1120;
+  } else {
+    // 无尽按钮不显示时，"返回"上移到第二行，填补空隙
+    CATCHOOSE_BACK_BTN.y = 1000;
   }
 
   drawAppButton(CATCHOOSE_BACK_BTN, '返 回', '#7fb8ff', '#3878b8', { fontSize: 30 });
@@ -9065,25 +9216,22 @@ function drawPauseOverlay(){
     { text: String(score),             colorKey: 'accent', gold: true }
   ], W/2, pillY + pillH/2 + 8, { size: 24 });
 
-  // ===== 按钮（写回全局常量，绘制/点击同步） =====
-  RESUME_BTN.x = W/2;
-  RESUME_BTN.y = boxY + 274;
-  RESUME_BTN.w = 260;
-  RESUME_BTN.h = 68;
+  // ===== 按钮：统一尺寸 =====
+  const BTN_W = 260;
+  const BTN_H = 72;
 
-  PAUSE_LB_BTN.x = W/2;
-  PAUSE_LB_BTN.y = boxY + 371;
-  PAUSE_LB_BTN.w = 260;
-  PAUSE_LB_BTN.h = 62;
+  RESUME_BTN.x = W/2;
+  RESUME_BTN.y = boxY + 310;
+  RESUME_BTN.w = BTN_W;
+  RESUME_BTN.h = BTN_H;
 
   RESTART_BTN.x = W/2;
-  RESTART_BTN.y = boxY + 461;
-  RESTART_BTN.w = 260;
-  RESTART_BTN.h = 62;
+  RESTART_BTN.y = boxY + 430;
+  RESTART_BTN.w = BTN_W;
+  RESTART_BTN.h = BTN_H;
 
-  drawAppButton(RESUME_BTN,   '继 续',    '#7fe0a0', '#289858', { fontSize: 28 });
-  drawAppButton(PAUSE_LB_BTN, '历史战绩', '#ffd24a', '#c87820', { fontSize: 24 });
-  drawAppButton(RESTART_BTN,  '退出游戏', '#ff8fb0', '#c84870', { fontSize: 24 });
+  drawAppButton(RESUME_BTN,  '继 续',    '#7fe0a0', '#289858', { fontSize: 28 });
+  drawAppButton(RESTART_BTN, '退出游戏', '#ff8fb0', '#c84870', { fontSize: 28 });
 
   drawUIText('按 P 或 Esc 也可继续', W/2, boxY + boxH - 24, 'muted', { size: 14 });
 }
@@ -10599,7 +10747,8 @@ loadLeaderboard();
 loadCatPref();
 loadCurrency();
 gameTime = 0;
-state = 'boot';
+state = 'menu';
+menuInit();
 requestAnimationFrame(loop);
 
 })();
