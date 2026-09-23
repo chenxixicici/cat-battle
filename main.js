@@ -32,10 +32,7 @@ resize();
 
 const MOVE_BASE  = { x: 130, y: H - 150 };
 const PAUSE_BTN  = { x: W - 60, y: 60, r: 50 };
-const MISSILE_BTN = { x: W - 90, y: H - 110, r: 54 };
-const ORB_BTN     = { x: W - 90, y: H - 490, r: 54 };
-const LASER_BTN   = { x: W - 90, y: H - 300, r: 54 };
-const AUTO_BTN    = { x: W - 90, y: H - 620, w: 76, h: 36 };
+// 右侧技能按钮已全部移除，改为左侧冷却条显示
 // 暂停界面按钮（在 drawPauseOverlay 里动态计算，这里存一份供点击检测）
 const RESUME_BTN       = { x: W/2, y: 0, w: 220, h: 60 };
 const PAUSE_LB_BTN     = { x: W/2, y: 0, w: 220, h: 56 };
@@ -62,9 +59,21 @@ const VICTORY_END_BTN      = { x: W/2, y: 940, w: 400, h: 88 };
 const STAGE_CLEAR_BTN = { x: W/2, y: H * 0.78, w: 400, h: 88 };
 // 关卡上限
 const MAX_WAVE = 20;
+// ================= 方阵 & 怪点 =================
+// 5 个刷新点，左右各留 110px 边距，间距 125px
+const FORMATION_POINTS_X = [110, 235, 360, 485, 610];
+
+// 方阵参数
+const FORMATION_ROWS       = 3;         // 3 行
+const FORMATION_COLS       = 3;         // 3 列
+const FORMATION_ROW_GAP    = 150;      // 行间距（大于单只怪视觉高度，避免重叠）
+const FORMATION_SPAWN_DELAY = 0.03;     // 每只怪出场间隔（秒）
+const FORMATION_SPEED      = 75;        // 方阵推进速度（px/s，约 17 秒到底）
+const FORMATION_BASE_Y     = -60;       // 前排起始 y
+const FORMATION_START_DELAY = 0.35;     // 方阵出现后统一延迟多久开始推进（秒）
 // ================= 闯关模式 =================
-const TOTAL_STAGES = 30;                          // 总关卡数
-const STAGE_PROGRESS_KEY = 'cat_battle_stage_progress_v1';
+const TOTAL_STAGES = 10;                          // 总关卡数
+const STAGE_PROGRESS_KEY = 'cat_battle_stage_progress_v2';
 
 let gameMode = 'stage';              // 'stage' | 'endless'
 let currentStageNum = 1;             // 闯关模式下当前关卡号
@@ -83,13 +92,6 @@ let stageVictoryInfo = null;         // 关卡结算数据
 let stageVictoryBtnRects = [];       // 结算界面的按钮热区
 let stageTotalEnemies = 0;   // 本关总怪物数（用于"剩余"统计）
 // 是否已解锁全部武器
-function isAllWeaponsUnlocked(){
-  return !!(unlockedWeapons.can &&
-            unlockedWeapons.orb &&
-            unlockedWeapons.laser &&
-            unlockedWeapons.missile &&
-            unlockedWeapons.airstrike);
-}
 
 // 武器解锁中文名
 const WEAPON_UNLOCK_NAMES = {
@@ -632,6 +634,12 @@ function recordStageResult(stageNum, stars){
     stageProgress.unlockedMax = Math.min(TOTAL_STAGES, stageNum + 1);
   }
   saveStageProgress();
+
+  // ★ 通关解锁武器
+  const unlockKey = STAGE_WEAPON_UNLOCK[stageNum];
+  if(unlockKey){
+    unlockWeapon(unlockKey);
+  }
 }
 function calcStars(hpRatio){
   if(hpRatio >= 0.9) return 3;
@@ -643,8 +651,6 @@ function calcStars(hpRatio){
 // 第 1 关 = 教学关（走原有逻辑）
 // 第 2 关起：每关 3 波，难度线性递增
 function getStageConfig(stageNum){
-  if(stageNum === 1) return null;
-
   const N = stageNum;
   const hpScale  = 1 + (N - 1) * 0.14;
   const spScale  = 1 + (N - 1) * 0.018;
@@ -659,16 +665,39 @@ function getStageConfig(stageNum){
   if(N >= 13) pool.push('armored');
   if(N >= 18) pool.push('elite');
 
-  // 3 波，数量线性递增
+  // ★ 4 波，每波一个 3×3 方阵（9 只），同种怪
+  //   前排 3 只 → 低血杂兵
+  //   中排 3 只 → 中坚
+  //   后排 3 只 → 精锐
+  //   （同一波内只用 1~2 种怪，视觉更整齐）
   const waves = [];
-  for(let i = 0; i < 3; i++){
-    const baseCount = 6 + (N - 2) * 1.5 + i * 4;
-    const count = Math.min(40, Math.floor(baseCount));
-    const list = [];
-    for(let k = 0; k < count; k++){
-      list.push(pool[Math.floor(Math.random() * pool.length)]);
+  for(let i = 0; i < 4; i++){
+    // 从池子里抽 3 个"档位"：低/中/高（不足 3 档时重复）
+    const tierLow  = pool[0];
+    const tierMid  = pool[Math.min(1, pool.length - 1)];
+    const tierHigh = pool[pool.length - 1];
+
+    // 随机决定本波用"纯一色"还是"三档混搭"
+    const useMixed = (pool.length >= 3) && (Math.random() < 0.55);
+
+    let list;
+    if(useMixed){
+      // 三档混搭：5 只一排，前排低血、中排中血、后排高血
+      list = [
+        // i=0..4 后排（高）
+        tierHigh, tierHigh, tierHigh, tierHigh, tierHigh,
+        // i=5..9 中排（中）
+        tierMid,  tierMid,  tierMid,  tierMid,  tierMid,
+        // i=10..14 前排（低）
+        tierLow,  tierLow,  tierLow,  tierLow,  tierLow
+      ];
+    } else {
+      // 纯一色：全用同一种
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      list = new Array(15).fill(pick);
     }
-    waves.push({ list, interval: 0.75, shuffle: true });
+
+    waves.push({ formationTypes: list });
   }
 
   return { waves, hpScale, spScale, dmgScale };
@@ -1176,6 +1205,54 @@ function addDiamonds(n){
   currency.diamonds += n;
   saveCurrency();
 }
+// ================= 武器解锁存档 =================
+const WEAPON_UNLOCK_KEY = 'cat_battle_weapon_unlock_v1';
+
+// 通关第 N 关解锁哪把武器
+// 数值是关卡号，-1 表示暂不解锁
+const STAGE_WEAPON_UNLOCK = {
+  1: 'laser',      // 第 1 关通关 → 解锁激光
+  3: 'missile',    // 第 3 关通关 → 解锁导弹
+  5: 'can'         // 第 5 关通关 → 解锁罐头
+};
+
+let savedWeaponUnlock = {
+  laser: false,
+  missile: false,
+  can: false,
+  orb: false,
+  airstrike: false
+};
+
+function loadWeaponUnlock(){
+  try{
+    const raw = localStorage.getItem(WEAPON_UNLOCK_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(!d || typeof d !== 'object') return;
+    for(const k in savedWeaponUnlock){
+      if(d[k] === true) savedWeaponUnlock[k] = true;
+    }
+  }catch(e){}
+}
+function saveWeaponUnlock(){
+  try{
+    localStorage.setItem(WEAPON_UNLOCK_KEY, JSON.stringify(savedWeaponUnlock));
+  }catch(e){}
+}
+function unlockWeapon(key){
+  if(!key || !(key in savedWeaponUnlock)) return false;
+  if(savedWeaponUnlock[key]) return false;
+  savedWeaponUnlock[key] = true;
+  saveWeaponUnlock();
+  return true;
+}
+// 检查某个武器是否已解锁
+function isWeaponUnlocked(wtype){
+  if(wtype === 'bullet') return true;      // 猫粮永远有
+  if(wtype === 'move' || wtype === 'life') return true;
+  return !!savedWeaponUnlock[wtype];
+}
 const TUTORIAL_DONE_KEY = 'cat_battle_tutorial_done_v1';
 
 function hasDoneTutorial(){
@@ -1369,9 +1446,6 @@ window.addEventListener('keydown', e => {
   setKey(e, true);
   audioInit();
   const k = (e.key || '').toLowerCase();
-  if(k === ' '){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.missile) fireMissile(); }
-  if(k === 'e'){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.laser) fireLaser(); }
-  if(k === 'q'){ e.preventDefault(); if(state === 'playing' && unlockedWeapons.orb) fireOrb(); }
   if(k === 'r' && state === 'dead') reset();
   if(k === 'f2' || k === '`'){
     e.preventDefault();
@@ -1574,60 +1648,6 @@ function onPointerDown(e){
     return;
   }
 
-  // ============ 关卡过关弹窗 ============
-  if(state === 'stageclear'){
-    const info = stageClearInfo;
-    if(!info){
-      state = 'playing';
-      stageClearInfo = null;
-      return;
-    }
-
-    // 解锁不再在这里做（改成关卡内 buff 卡解锁）
-
-    // 重置本关击杀计数
-    stageKillCount = 0;
-
-    if(info.isLastStage){
-      markTutorialDone();
-      currentStage = 0;
-      waveInStage = 0;
-      setBackground(ENDLESS_BACKGROUNDS[0]);   // ★ 先切背景
-      banner = { text: '教学完成！进入无尽模式', life: 2.5 };
-      waveBreakTimer = 2.5;
-      stageClearInfo = null;
-
-      tutorialQueue = END_TUTORIAL_STEPS.slice();
-      tutorialStep = 0;
-      tutorialOnFinish = 'continue-wave';
-      state = 'tutorial';
-      last = performance.now();
-      return;
-    }
-
-    // 进入下一关
-    currentStage++;
-    waveInStage = 0;
-    setBackground(STAGE_BACKGROUNDS[currentStage - 1] || 'grass');  // ★ 先切背景
-    banner = { text: '第 ' + currentStage + ' 关  ·  第 1 / ' + STAGE_WAVES + ' 波', life: 2.0 };
-    waveBreakTimer = 2.0;
-    stageClearInfo = null;
-    state = 'playing';
-    last = performance.now();
-    return;
-  }
-
-  // 点击任意位置先关闭已有 tips；若点到左侧技能图标本身，则不关闭
-  if(skillTip.type){
-    const TMP_CX = 46;
-    const TMP_HIT = 28 + 16;
-    const hitCan = Math.hypot(p.x - TMP_CX, p.y - H * 0.50) < TMP_HIT;
-    const hitAir = player && player.airstrikeLevel > 0 &&
-                   Math.hypot(p.x - TMP_CX, p.y - H * 0.50 - 104) < TMP_HIT;
-    if(!hitCan && !hitAir){
-      skillTip = { type: null, fade: 0 };
-    }
-  }
   // ============ 主菜单 ============
   if(state === 'menu'){
     // ★ 隐藏：右上角 80×80 连点 3 次，重置教学完成标记
@@ -2016,53 +2036,7 @@ function onPointerDown(e){
   if(Math.hypot(p.x - PAUSE_BTN.x, p.y - PAUSE_BTN.y) < PAUSE_BTN.r + 20){
     state = 'paused'; return;
   }
-  // 自动释放开关（解锁全武器后才响应）
-  if(isAllWeaponsUnlocked() &&
-     p.x >= AUTO_BTN.x - AUTO_BTN.w/2 - 10 && p.x <= AUTO_BTN.x + AUTO_BTN.w/2 + 10 &&
-     p.y >= AUTO_BTN.y - AUTO_BTN.h/2 - 26 && p.y <= AUTO_BTN.y + AUTO_BTN.h/2 + 8){
-    autoCast = !autoCast;
-    try{ localStorage.setItem('cat_auto_cast', autoCast ? '1' : '0'); }catch(e){}
-    return;
-  }
-  // 点击左侧技能图标：显示 tips
-  const SKILL_ICON_CX = 46;
-  const SKILL_ICON_HIT = 28 + 16;
-  if(unlockedWeapons.can &&
-     Math.hypot(p.x - SKILL_ICON_CX, p.y - H * 0.50) < SKILL_ICON_HIT){
-    skillTip = { type: 'can', fade: 0 };
-    return;
-  }
-  if(unlockedWeapons.airstrike && player.airstrikeLevel > 0 &&
-     Math.hypot(p.x - SKILL_ICON_CX, p.y - H * 0.50 - 104) < SKILL_ICON_HIT){
-    skillTip = { type: 'airstrike', fade: 0 };
-    return;
-  }
-   // ★ 毛球按钮：点击释放
-  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0 &&
-     Math.hypot(p.x - ORB_BTN.x, p.y - ORB_BTN.y) < ORB_BTN.r + 22){
-    fireOrb();
-    return;
-  }
-  // 激光按钮：点击释放，按住 0.35s 显示 tips
-  if(unlockedWeapons.laser &&
-     Math.hypot(p.x - LASER_BTN.x, p.y - LASER_BTN.y) < LASER_BTN.r + 22){
-    fireLaser();
-    pressState.laserHold = true;
-    pressState.laserTimer = 0;
-    return;
-  }
-  // 导弹按钮：同上
-  if(unlockedWeapons.missile &&
-     Math.hypot(p.x - MISSILE_BTN.x, p.y - MISSILE_BTN.y) < MISSILE_BTN.r + 22){
-    fireMissile();
-    pressState.missileHold = true;
-    pressState.missileTimer = 0;
-    return;
-  }
-
   if(isMouse){
-    if(e.button === 0) fireMissile();
-    else if(e.button === 2) fireLaser();
     return;
   }
 
@@ -2098,26 +2072,6 @@ function onPointerUp(e){
     stageScroll.dragging = false;
   }
   if(e.pointerId === moveJoy.id) resetJoy(moveJoy, MOVE_BASE);
-
-  // 长按释放：tips 保持；短按则关掉对应的 tips
-  if(pressState.laserHold){
-    pressState.laserHold = false;
-    if(pressState.laserTimer >= SKILL_TIP_LONGPRESS){
-      if(skillTip.type !== 'laser') skillTip = { type: 'laser', fade: 0 };
-    } else if(skillTip.type === 'laser'){
-      skillTip = { type: null, fade: 0 };
-    }
-    pressState.laserTimer = 0;
-  }
-  if(pressState.missileHold){
-    pressState.missileHold = false;
-    if(pressState.missileTimer >= SKILL_TIP_LONGPRESS){
-      if(skillTip.type !== 'missile') skillTip = { type: 'missile', fade: 0 };
-    } else if(skillTip.type === 'missile'){
-      skillTip = { type: null, fade: 0 };
-    }
-    pressState.missileTimer = 0;
-  }
 }
 cv.addEventListener('pointerdown', onPointerDown, { passive: false });
 cv.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -2175,41 +2129,41 @@ cv.addEventListener('click', audioUnlockByClick);
 //   armored  = 骑士（护甲精英，怕毛球/罐头）
 //   elite    = 大恶魔（恶魔精英，最强）
 const ENEMY_TYPES = {
-  // 小老鼠：基础杂兵
-  zombie:  { hp: 200, speed: 55,  r: 13, dmg: 1,  color: '#7a7a7a',
+  // 小老鼠：基础杂兵（2 下猫粮）
+  zombie:  { hp: 24,  speed: 55,  r: 13, dmg: 1,  color: '#7a7a7a',
              bulletMult: 1.0, meleeMult: 1.0, canMult: 1.0,
              laserMult: 1.0, missileMult: 1.0, airstrikeMult: 1.0 },
 
-  // 小鼠：高速，靠速度躲子弹，不减伤
-  runner:  { hp: 180, speed: 152, r: 11, dmg: 1,  color: '#9aa0a4',
+  // 小鼠：高速（2 下猫粮）
+  runner:  { hp: 20,  speed: 152, r: 11, dmg: 1,  color: '#9aa0a4',
              bulletMult: 1.0, meleeMult: 1.5, canMult: 1.0,
              laserMult: 1.0, missileMult: 1.0, airstrikeMult: 1.0 },
 
-  // 小恶魔：远程，怕激光/导弹
-  spitter: { hp: 300, speed: 60,  r: 15, dmg: 0,  color: '#a83232', ranged: true,
+  // 小恶魔：远程（3 下猫粮）
+  spitter: { hp: 36,  speed: 60,  r: 15, dmg: 0,  color: '#a83232', ranged: true,
              bulletMult: 1.2, meleeMult: 0.5, canMult: 1.0,
              laserMult: 1.5, missileMult: 1.5, airstrikeMult: 1.0 },
 
-  // 骷髅：中坚，怕毛球/激光
-  skeleton:{ hp: 450, speed: 35,  r: 16, dmg: 1, color: '#d8e0e4',
+  // 骷髅：中坚（5 下猫粮，怕毛球/激光）
+  skeleton:{ hp: 60,  speed: 35,  r: 16, dmg: 1, color: '#d8e0e4',
              bulletMult: 0.5, meleeMult: 1.5, canMult: 1.0,
              laserMult: 1.5, missileMult: 1.2, airstrikeMult: 1.0, skeleton: true },
 
-  // 大老鼠：血厚，怕导弹
-  brute:   { hp: 900, speed: 40,  r: 26, dmg: 2, color: '#4a4a4a',
+  // 大老鼠：血厚（10 下猫粮，怕导弹）
+  brute:   { hp: 120, speed: 40,  r: 26, dmg: 2, color: '#4a4a4a',
              bulletMult: 0.8, meleeMult: 0.7, canMult: 1.5,
              laserMult: 1.2, missileMult: 1.8, airstrikeMult: 1.2 },
 
-  // 骑士：带护盾的精英
-  armored: { hp: 1400, speed: 48,  r: 22, dmg: 3, color: '#7a8570',
+  // 骑士：护盾精英（猫粮几乎无效，靠导弹/罐头）
+  armored: { hp: 180, speed: 48,  r: 22, dmg: 3, color: '#7a8570',
              bulletMult: 0.15, meleeMult: 1.0, canMult: 1.8,
              laserMult: 1.5, missileMult: 1.8, airstrikeMult: 1.5,
              elite: true, armored: true,
-             shieldBaseHP: 400,
+             shieldBaseHP: 60,
              shieldMult: { bullet: 0.1, orb: 0.5, laser: 1.0, missile: 1.5, can: 4.0, airstrike: 3.0 } },
 
-  // 大恶魔：最强精英，远程
-  elite:   { hp: 2200, speed: 58,  r: 28, dmg: 4, color: '#a83232', ranged: true,
+  // 大恶魔：最强精英（猫粮无效，靠导弹）
+  elite:   { hp: 280, speed: 58,  r: 28, dmg: 4, color: '#a83232', ranged: true,
              bulletMult: 0.10, meleeMult: 0.8, canMult: 1.6,
              laserMult: 1.6, missileMult: 1.8, airstrikeMult: 1.5, elite: true, demon: true }
 };
@@ -2229,35 +2183,44 @@ const DROP_MAX_ON_FIELD = 25;   // ★ 屏幕上最多同时存在 25 个掉落�
 
 // ================= BUFF =================
 const BUFFS = [
-  { id:'orb_count',     name:'毛球增生', desc:'毛球数量 +1',         max:4, icon:'🧶', color:'#ffb0d0' },
-  { id:'orb_damage',    name:'毛球加重', desc:'毛球伤害 +50%',       max:5, icon:'💢', color:'#ff90a8' },
-  { id:'orb_size',      name:'毛球膨胀', desc:'毛球尺寸 +35%',       max:4, icon:'⚪', color:'#ffc0d8' },
-  { id:'orb_radius',    name:'毛球扩散', desc:'毛球环绕半径 +20%',   max:3, icon:'🎯', color:'#ffd0e0' },
-  { id:'missile_count', name:'导弹齐射', desc:'导弹数量 +1',         max:4, icon:'🚀', color:'#ff8a3c' },
-  { id:'missile_damage',name:'导弹弹头', desc:'导弹伤害 +45%',       max:5, icon:'💥', color:'#ff6b4a' },
-  { id:'missile_charge',name:'快速装填', desc:'导弹充能 -28%',       max:4, icon:'⚡', color:'#ffa060' },
-  { id:'multishot',     name:'多重弹道', desc:'每次射击 +1 发猫粮',   max:4, icon:'🎯', color:'#6fd0ff' },
-  { id:'firerate',      name:'极速射击', desc:'猫粮射速 +28%',        max:5, icon:'⚡', color:'#ffd24a' },
-  { id:'speed',         name:'疾风猫步', desc:'移动速度 +18%',        max:5, icon:'💨', color:'#7fe0a0' },
-  { id:'damage',        name:'重型猫粮', desc:'猫粮伤害 +40%',        max:5, icon:'💥', color:'#ff8a3c' },
-  { id:'canpower',      name:'罐头强化', desc:'罐头伤害 +50%',        max:5, icon:'🍖', color:'#ff9f6b' },
-  { id:'blast',         name:'罐头爆炸', desc:'罐头爆炸范围 +35%',    max:4, icon:'💣', color:'#ffcf5c' },
-  { id:'laserup',       name:'激光充能', desc:'能量获取 +60%',        max:4, icon:'✨', color:'#a0d0ff' },
-  { id:'laserpower',    name:'激光强化', desc:'激光伤害 +45%',        max:5, icon:'🔫', color:'#88eeff' },
-  { id:'frozen_bullet', name:'冰冻弹',   desc:'猫粮附加冰冻几率 +8%', max:5, icon:'❄', color:'#a0e8ff' },
-  { id:'airstrike',     name:'全屏轰炸', desc:'自动空投炸弹，每级 +1 颗', max:5, icon:'💣', color:'#ff8a3c' },
-  { id:'vitality',      name:'生命强化', desc:'生命上限 +30 并回满',  max:5, icon:'❤', color:'#ff6b8a' }
+  // ===== 猫粮（3）=====
+  { id:'firerate',        name:'极速射击', desc:'猫粮射速 +30%',          max:3, icon:'⚡', color:'#ffd24a' },
+  { id:'multishot',       name:'多重弹道', desc:'每次射击 +1 发猫粮',     max:3, icon:'🎯', color:'#6fd0ff' },
+  { id:'frozen_bullet',   name:'冰冻弹',   desc:'猫粮附加冰冻几率（基础30%）', max:3, icon:'❄', color:'#a0e8ff' },
+
+  // ===== 激光（3）=====
+  { id:'laser_width',     name:'激光扩束', desc:'激光宽度 +30%',          max:3, icon:'🔫', color:'#88eeff' },
+  { id:'laser_cooldown',  name:'激光速冷', desc:'激光冷却 -20%',          max:3, icon:'⚡', color:'#88eeff' },
+  { id:'laser_slow',      name:'激光冻结', desc:'激光减速时长 +0.15 秒',  max:3, icon:'❄', color:'#88eeff' },
+
+  // ===== 导弹（2）=====
+  { id:'missile_count',   name:'导弹齐射', desc:'导弹数量 +2',            max:3, icon:'🚀', color:'#ff8a3c' },
+  { id:'missile_cooldown',name:'导弹速冷', desc:'导弹冷却 -20%',          max:3, icon:'⚡', color:'#ff8a3c' },
+
+  // ===== 暂时不进池（后续关卡解锁）=====
+  { id:'canpower',        name:'罐头强化', desc:'罐头伤害 +50%',          max:3, icon:'🍖', color:'#ff9f6b' },
+  { id:'blast',           name:'罐头爆炸', desc:'罐头爆炸范围 +35%',      max:3, icon:'💣', color:'#ffcf5c' },
+  { id:'orb_count',       name:'毛球增生', desc:'毛球数量 +1',            max:3, icon:'🧶', color:'#ffb0d0' },
+  { id:'orb_damage',      name:'毛球加重', desc:'毛球伤害 +50%',          max:3, icon:'💢', color:'#ff90a8' },
+  { id:'airstrike',       name:'全屏轰炸', desc:'自动空投炸弹，每级 +1 颗', max:3, icon:'💣', color:'#ff8a3c' }
 ];
 
 // ================= 推荐 Buff 配置 =================
 // 加入这里的 buff，在强化选择界面会显示"推荐"标签
 // 想取消推荐就删掉对应字符串；想加新的就把 id 填进来
 const RECOMMENDED_BUFFS = [
-  'frozen_bullet',   // 冰冻弹
-  'airstrike',       // 全屏轰炸
-  'multishot'        // 多重弹道
+  'multishot',       // 多重弹道
+  'missile_count'    // 导弹齐射
 ];
-
+// 判断一个 buff 当前是否可抽（武器已解锁 + 未满级）
+function isBuffAvailable(b){
+  if(!b) return false;
+  if((player.buffLevels[b.id] || 0) >= b.max) return false;
+  const wtype = BUFF_WEAPON_TYPE[b.id];
+  if(!wtype) return true;
+  if(wtype === 'bullet' || wtype === 'move' || wtype === 'life') return true;
+  return !!unlockedWeapons[wtype];
+}
 function isRecommended(id){
   if(!id) return false;
   // 双重增益卡的 id 是 'dbl_xxx_yyy'，用 realId 判断
@@ -2268,54 +2231,61 @@ function isRecommended(id){
 function getBuffPreviewText(id, lv){
   const next = lv + 1;
   switch(id){
-    case 'orb_count':     return '毛球数量：' + (3+lv) + ' → ' + (3+next);
-    case 'orb_damage':    return '毛球伤害：' + Math.round(26*(1+0.5*lv)) + ' → ' + Math.round(26*(1+0.5*next));
-    case 'orb_size':      return '毛球尺寸：' + Math.round(100+35*lv) + '% → ' + Math.round(100+35*next) + '%';
-    case 'orb_radius':    return '环绕半径：' + Math.round(100+20*lv) + '% → ' + Math.round(100+20*next) + '%';
-    case 'missile_count': return '导弹数量：' + (4+lv) + ' → ' + (4+next);
-    case 'missile_damage':return '导弹伤害：' + Math.round(100*(1+0.45*lv)) + ' → ' + Math.round(100*(1+0.45*next));
-    case 'missile_charge':return '充能时间：' + (4/(1+0.28*lv)).toFixed(2) + 's → ' + (4/(1+0.28*next)).toFixed(2) + 's';
-    case 'multishot':     return '猫粮发数：' + (1+lv) + ' → ' + (1+next);
-    case 'pierce':        return '穿透数量：' + (1+lv) + ' → ' + (1+next);
-    case 'firerate':      return '射击间隔：' + (0.5/(1+0.28*lv)).toFixed(3) + 's → ' + (0.5/(1+0.28*next)).toFixed(3) + 's';
-    case 'speed':         return '移动速度：' + Math.round(240*(1+0.18*lv)) + ' → ' + Math.round(240*(1+0.18*next));
-    case 'damage':        return '猫粮伤害：' + Math.round(10*(1+0.4*lv)) + ' → ' + Math.round(10*(1+0.4*next));
-    case 'bulletrange':   return '射程加成：' + Math.round(100+40*lv) + '% → ' + Math.round(100+40*next) + '%';
-    case 'canpower':      return '罐头伤害：' + Math.round(115*(1+0.5*lv)) + ' → ' + Math.round(115*(1+0.5*next));
-    case 'blast':         return '爆炸范围：' + Math.round(140*(1+0.35*lv)) + ' → ' + Math.round(140*(1+0.35*next));
-    case 'laserup':       return '能量加成：' + Math.round(100+60*lv) + '% → ' + Math.round(100+60*next) + '%';
-    case 'laserpower':    return '激光伤害：' + Math.round(140*(1+0.45*lv)) + ' → ' + Math.round(140*(1+0.45*next));
-    case 'frozen_bullet': return '冰冻几率：' + Math.round((0.06+0.08*lv)*100) + '% → ' + Math.round((0.06+0.08*next)*100) + '%';
-    case 'airstrike':     return '炸弹数量：' + (3+lv) + ' → ' + (3+next) + ' 颗，伤害 +30';
-    case 'vitality':      return '生命上限：' + (100+30*lv) + ' → ' + (100+30*next);
+    // ===== 猫粮 =====
+    case 'firerate':
+      return '射速 +30%/级 · 猫粮伤害 +20%/级';
+    case 'multishot':
+      return '发数 +1/级 · 猫粮伤害 +20%/级';
+    case 'frozen_bullet':
+      return '冰冻率 ' + Math.round((0.30 + 0.10*lv)*100) + '% → ' +
+             Math.round((0.30 + 0.10*next)*100) + '% · 伤害 +20%/级';
+    // ===== 激光 =====
+    case 'laser_width':
+      return '宽度 +30%/级 · 激光伤害 +20%/级';
+    case 'laser_cooldown':
+      return '冷却 -20%/级 · 激光伤害 +20%/级';
+    case 'laser_slow':
+      return '减速时长 +0.15 秒/级 · 激光伤害 +20%/级';
+    // ===== 导弹 =====
+    case 'missile_count':
+      return '数量 +2/级 · 导弹伤害 +20%/级';
+    case 'missile_cooldown':
+      return '冷却 -20%/级 · 导弹伤害 +20%/级';
+    // ===== 暂时不进池的 =====
+    case 'canpower':
+      return '罐头伤害 +50%/级';
+    case 'blast':
+      return '爆炸范围 +35%/级';
+    case 'orb_count':
+      return '毛球数量 +1/级';
+    case 'orb_damage':
+      return '毛球伤害 +50%/级';
+    case 'airstrike':
+      return '炸弹数量 +1/级，伤害 +30';
     default: return '';
   }
 }
 const BUFF_CATEGORY = {
-  orb_count: 'orb', orb_damage: 'orb', orb_size: 'orb', orb_radius: 'orb',
-  missile_count: 'missile', missile_damage: 'missile', missile_charge: 'missile',
-  multishot: 'bullet', pierce: 'bullet', firerate: 'bullet', damage: 'bullet', bulletrange: 'bullet',
+  firerate: 'bullet', multishot: 'bullet', frozen_bullet: 'bullet',
+  laser_width: 'laser', laser_cooldown: 'laser', laser_slow: 'laser',
+  missile_count: 'missile', missile_cooldown: 'missile',
   canpower: 'can', blast: 'can',
-  laserup: 'laser', laserpower: 'laser', laser_count: 'laser',
-  frozen_bullet: 'bullet',
-  airstrike: 'can',
-  speed: 'move', vitality: 'life'
+  orb_count: 'orb', orb_damage: 'orb',
+  airstrike: 'can'
 };
 
 // ============ 稀有度 & 武器类型 ============
 // 稀有度：blue 小提升 / purple 中提升 / red 大提升（质变）/ gold 解锁武器
 const BUFF_RARITY = {
   // 蓝（小提升）
-  orb_size: 'blue', orb_radius: 'blue', speed: 'blue',
+  firerate: 'blue', laser_width: 'blue',
   // 紫（中提升）
-  orb_count: 'purple', orb_damage: 'purple',
-  missile_count: 'purple', missile_damage: 'purple', missile_charge: 'purple',
-  firerate: 'purple', damage: 'purple', frozen_bullet: 'purple',
+  frozen_bullet: 'purple', laser_cooldown: 'purple', laser_slow: 'purple',
   canpower: 'purple', blast: 'purple',
-  laserup: 'purple', laserpower: 'purple',
-  vitality: 'purple',
+  orb_count: 'purple', orb_damage: 'purple',
+  missile_cooldown: 'purple',
   // 红（质变）
-  multishot: 'red', airstrike: 'red'
+  multishot: 'red', missile_count: 'red', airstrike: 'red'
 };
 
 // 稀有度配色
@@ -2360,13 +2330,12 @@ const RARITY_COLORS = {
 
 // buff 属于哪种武器
 const BUFF_WEAPON_TYPE = {
-  orb_count: 'orb', orb_damage: 'orb', orb_size: 'orb', orb_radius: 'orb',
-  missile_count: 'missile', missile_damage: 'missile', missile_charge: 'missile',
-  multishot: 'bullet', firerate: 'bullet', damage: 'bullet', frozen_bullet: 'bullet',
+  firerate: 'bullet', multishot: 'bullet', frozen_bullet: 'bullet',
+  laser_width: 'laser', laser_cooldown: 'laser', laser_slow: 'laser',
+  missile_count: 'missile', missile_cooldown: 'missile',
   canpower: 'can', blast: 'can',
-  laserup: 'laser', laserpower: 'laser', laser_count: 'laser',
-  airstrike: 'airstrike',
-  speed: 'move', vitality: 'life'
+  orb_count: 'orb', orb_damage: 'orb',
+  airstrike: 'airstrike'
 };
 
 // 武器类型中文名
@@ -2448,7 +2417,7 @@ function drawBuffIcon(id, cx, cy, size, color){
     } else if(id === 'orb_size'){
       ctx.beginPath(); ctx.arc(0, 0, s * 0.95, 0, TAU); ctx.stroke();
     }
-  } else if(id === 'missile_count' || id === 'missile_damage' || id === 'missile_charge'){
+  } else if(id === 'missile_count' || id === 'missile_damage' || id === 'missile_charge' || id === 'missile_cooldown'){
     ctx.beginPath();
     ctx.moveTo(-s * 0.6, -s * 0.4);
     ctx.lineTo(s * 0.8, 0);
@@ -2532,7 +2501,7 @@ function drawBuffIcon(id, cx, cy, size, color){
       ctx.stroke();
     }
 
-  } else if(id === 'laserup' || id === 'laserpower'){
+  } else if(id === 'laserup' || id === 'laserpower' || id === 'laser_width' || id === 'laser_cooldown' || id === 'laser_slow'){
     ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, TAU); ctx.fill();
     for(let i = 0; i < 4; i++){
       const a = i * TAU / 4;
@@ -2642,8 +2611,6 @@ let state, player, enemies, bullets, eBullets, cans, particles, rings, burnMarks
 let missileList = [];
 let cam, wave, waveActive, spawnQueue, waveTimer, waveBreakTimer, score, gameTime, banner;
 let nextEnemyId = 1;
-let autoCast = false;
-let autoCastAnim = 0;
 let lbFrom = 'dead';
 // 弹窗红X的点击热区
 let pauseCloseRect   = null;
@@ -2667,15 +2634,8 @@ let helpListRects = [];         // 玩法说明列表项的点击区域
 
 // ============ 教学关卡配置 ============
 // unlockThisStage：进入这一关后，第一次清波时弹出"解锁卡"
-const STAGES = [
-  { unlockThisStage: 'frozen_bullet' },  // 波 1 → 冰冻弹
-  { unlockThisStage: 'can' },            // 波 2 → 罐头
-  { unlockThisStage: 'orb' },            // 波 3 → 毛球
-  { unlockThisStage: 'laser' },          // 波 4 → 激光
-  { unlockThisStage: 'missile' },        // 波 5 → 导弹
-  { unlockThisStage: 'airstrike' },      // 波 6 → 轰炸
-  { unlockThisStage: null }              // 波 7 → 终极混战，无解锁
-];
+const STAGE_WAVES = 7;
+const TUTORIAL_MAX_STAGE = 1;
 
 // 技能引导文案
 const SKILL_INTROS = {
@@ -2711,7 +2671,7 @@ const SKILL_INTROS = {
     trigger: '能量满 100 后按 E 或点右侧按钮',
     when: '面对血厚大怪时效果最好，能持续锁定输出',
     detail: '锁定最近敌人持续输出，并附带减速效果',
-    highlight: () => ({ shape: 'circle', x: LASER_BTN.x, y: LASER_BTN.y, r: LASER_BTN.r + 12 }),
+    highlight: () => ({ shape: 'circle', x: 46, y: H * 0.38, r: 46 }),
     panelAnchor: 'left'
   },
   missile: {
@@ -2721,7 +2681,7 @@ const SKILL_INTROS = {
     trigger: '按空格或点右侧按钮',
     when: '面对远程怪或高血量怪时效果最好',
     detail: '自动追踪最高血量敌人，充能制，最多 3 层',
-    highlight: () => ({ shape: 'circle', x: MISSILE_BTN.x, y: MISSILE_BTN.y, r: MISSILE_BTN.r + 12 }),
+    highlight: () => ({ shape: 'circle', x: 46, y: H * 0.38 + 100, r: 46 }),
     panelAnchor: 'left'
   },
   airstrike: {
@@ -2750,16 +2710,14 @@ const SKILL_INTROS = {
     panelAnchor: 'below'
   }
 };
-const STAGE_WAVES = 7;        // ★ 教学关共 7 波
-const TUTORIAL_MAX_STAGE = 1; // ★ 只有 1 个教学关
 
 // 每个武器系列对应的 buff id
 const BUFF_POOLS = {
-  bullet:    ['multishot', 'firerate', 'damage', 'frozen_bullet'],
+  bullet:    ['firerate', 'multishot', 'frozen_bullet'],
+  laser:     ['laser_width', 'laser_cooldown', 'laser_slow'],
+  missile:   ['missile_count', 'missile_cooldown'],
   can:       ['canpower', 'blast'],
-  orb:       ['orb_count', 'orb_damage', 'orb_size', 'orb_radius'],
-  laser:     ['laserup', 'laserpower'],
-  missile:   ['missile_count', 'missile_damage', 'missile_charge'],
+  orb:       ['orb_count', 'orb_damage'],
   airstrike: ['airstrike']
 };
 
@@ -2873,10 +2831,6 @@ let lbTagRects = [];
 let lbBuffPopup = -1;
 let lbPopupCloseRect = null;
 
-// 技能 tips 系统
-let skillTip = { type: null, fade: 0 };
-const SKILL_TIP_LONGPRESS = 0.35;
-let pressState = { laserHold: false, laserTimer: 0, missileHold: false, missileTimer: 0 };
 let waveCapDisabled = false;   // 胜利后选择继续，则解除 10 波上限
 let helpFrom = 'menu';         // 游戏说明的返回目标
 let buffChoices = [], buffCards = [];
@@ -3004,11 +2958,13 @@ const MAX_ENEMIES_ON_FIELD = 30;
 
 const CAN_AUTO_INTERVAL = 5;
 const LASER_COST        = 100;
-const LASER_DURATION    = 0.30;
+const LASER_DURATION    = 5.0;
 const LASER_BASE_RADIUS = 2400;
 const LASER_BASE_DAMAGE = 140;
 const ENERGY_REGEN      = 0;   // 已改为命中/击杀获取
-const CAN_BASE_DAMAGE   = 115;
+const CAN_BASE_DAMAGE   = 80;      // 罐头伤害（100 → 80）
+const CAN_ATTACK_RANGE  = 360;     // 罐头攻击距离（约半屏）
+const AIRSTRIKE_RANGE   = 360;     // 空袭攻击距离（约半屏）
 const FIRE_BASE_RANGE   = 1300;
 const BULLET_HOMING     = true;
 
@@ -3033,7 +2989,7 @@ let laser = {
   angle: 0,
   hitSet: new Map(),
   timer: 0,
-  duration: 8.0,
+  duration: 5.0,
   dps: 0,
   flash: 0
 };
@@ -3076,10 +3032,8 @@ function reset(mode, stageNum){
     orbCooldown: 0,        // 剩余冷却
     missileCount: MISSILE_BASE_COUNT,
     missileDamage: MISSILE_BASE_DAMAGE,
-    missileCharges: MISSILE_MAX_CHARGES,
-    missileChargeMax: MISSILE_MAX_CHARGES,
-    missileChargeTime: MISSILE_CHARGE_TIME,
-    missileChargeTimer: 0
+    missileCooldown: 0,          // 剩余冷却
+    missileCooldownMax: 5        // 冷却总时长（秒）
   };
   recalcPlayerStats();
 
@@ -3123,9 +3077,6 @@ function reset(mode, stageNum){
   pendingCritReward = false;
   isSecondPick = false;
   bubble.life = 0; bubble.text = '';
-  try{ autoCast = localStorage.getItem('cat_auto_cast') === '1'; }
-  catch(e){ autoCast = false; }
-  autoCastAnim = autoCast ? 1 : 0;
   laser.active = false;
   laser.angle = 0;
   laser.hitSet = new Map();
@@ -3173,43 +3124,28 @@ function reset(mode, stageNum){
   unlockedWeapons = {};
 
   // ★ 计算本关总怪物数
-  if(stageNum === 1){
-    let sum = 0;
-    for(const w of TUTORIAL_WAVES) sum += (w.list ? w.list.length : 0);
-    stageTotalEnemies = sum;
-  } else {
-    const cfg = getStageConfig(stageNum);
-    let sum = 0;
-    for(const w of cfg.waves) sum += (w.list ? w.list.length : 0);
-    stageTotalEnemies = sum;
+  const cfg0 = getStageConfig(stageNum);
+  let sum = 0;
+  for(const w of cfg0.waves){
+    if(w.formationTypes) sum += w.formationTypes.length;
+    else if(w.list) sum += w.list.length;
   }
+  stageTotalEnemies = sum;
 
-  if(stageNum === 1){
-    // 第 1 关：走教学
-    unlockedWeapons.catfood = true;
-    waveInStage = 0;
-    wave = 0;
-    tutorialStep = 0;
-    tutorialQueue = INITIAL_TUTORIAL_STEPS.slice();
-    tutorialOnFinish = 'start-game';
-    state = 'tutorial';
-    last = performance.now();
-  } else {
-    // 第 2 关起：全武器
-    unlockedWeapons.catfood   = true;
-    unlockedWeapons.can       = true;
-    unlockedWeapons.orb       = true;
-    unlockedWeapons.laser     = true;
-    unlockedWeapons.missile   = true;
-    unlockedWeapons.airstrike = true;
-    recalcPlayerStats();
+  // ★ 所有关卡统一：按存档给武器
+  unlockedWeapons.catfood   = true;
+  unlockedWeapons.can       = savedWeaponUnlock.can;
+  unlockedWeapons.orb       = savedWeaponUnlock.orb;
+  unlockedWeapons.laser     = savedWeaponUnlock.laser;
+  unlockedWeapons.missile   = savedWeaponUnlock.missile;
+  unlockedWeapons.airstrike = savedWeaponUnlock.airstrike;
+  recalcPlayerStats();
 
-    waveInStage = 1;
-    wave = 1;
-    state = 'playing';
-    startWave(1);
-    last = performance.now();
-  }
+  waveInStage = 1;
+  wave = 1;
+  state = 'playing';
+  startWave(1);
+  last = performance.now();
 }
 
 function generateGroundDecorations(){
@@ -3239,40 +3175,53 @@ function updateCameraInstant(){
 
 function recalcPlayerStats(){
   const b = player.buffLevels;
-  player.fireRate          = 0.5  / (1 + 0.28 * (b.firerate || 0));
-  player.speed             = 240  * (1 + 0.18 * (b.speed || 0));
-  player.bulletDamage      = 10   * (1 + 0.40 * (b.damage || 0));
-  player.bulletRangeMult   = 1 + 0.40 * (b.bulletrange || 0);
-  player.canDamage         = CAN_BASE_DAMAGE * (1 + 0.50 * (b.canpower || 0));
-  player.laserDamage       = LASER_BASE_DAMAGE * (1 + 0.45 * (b.laserpower || 0));
-  player.blastRadius       = 140  * (1 + 0.35 * (b.blast || 0));
-  player.pierce            = 1 + (b.pierce || 0);
-  player.multishot         = (b.multishot || 0);
 
-  // 毛球：未解锁或被传给猫小弟则数量为 0
+  // ===== 猫粮 =====
+  const bulletDmgLv = (b.firerate || 0) + (b.multishot || 0) + (b.frozen_bullet || 0);
+  player.fireRate        = 0.5 / (1 + 0.30 * (b.firerate || 0));
+  player.bulletDamage    = 12  * (1 + 0.20 * bulletDmgLv);
+  player.bulletRangeMult = 1;
+  player.pierce          = 1;
+  player.multishot       = (b.multishot || 0);
+
+  // ===== 激光 =====
+  const laserDmgLv = (b.laser_width || 0) + (b.laser_cooldown || 0) + (b.laser_slow || 0);
+  player.laserDamage      = LASER_BASE_DAMAGE * (1 + 0.20 * laserDmgLv);
+  player.laserWidthMult   = 1 + 0.30 * (b.laser_width || 0);
+  player.laserCooldownMax = LASER_COOLDOWN_MAX * (1 - 0.20 * (b.laser_cooldown || 0));
+  player.laserSlowTime    = 0.25 + 0.15 * (b.laser_slow || 0);
+  player.laserRadius      = LASER_BASE_RADIUS;
+
+  // ===== 导弹 =====
+  const missileDmgLv = (b.missile_count || 0) + (b.missile_cooldown || 0);
+  player.missileCount        = MISSILE_BASE_COUNT + 2 * (b.missile_count || 0);
+  player.missileDamage       = MISSILE_BASE_DAMAGE * (1 + 0.20 * missileDmgLv);
+  player.missileCooldownMax  = 5 * (1 - 0.20 * (b.missile_cooldown || 0));
+
+  // ===== 罐头（暂时不进池，但保留计算）=====
+  player.canDamage   = CAN_BASE_DAMAGE * (1 + 0.50 * (b.canpower || 0));
+  player.blastRadius = 140 * (1 + 0.35 * (b.blast || 0));
+
+  // ===== 毛球（暂时不进池，但保留计算）=====
   if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0){
     player.orbCount = 3 + (b.orb_count || 0);
   } else {
     player.orbCount = 0;
   }
   player.orbDamage    = ORB_BASE_DAMAGE * (1 + 0.50 * (b.orb_damage || 0));
-  player.orbSize      = ORB_BASE_SIZE * (1 + 0.35 * (b.orb_size || 0));
-  player.orbRadius    = ORB_BASE_RADIUS * (1 + 0.20 * (b.orb_radius || 0));
+  player.orbSize      = ORB_BASE_SIZE;
+  player.orbRadius    = ORB_BASE_RADIUS;
   player.orbSpeedMult = 1;
 
-  player.missileCount     = MISSILE_BASE_COUNT + (b.missile_count || 0);
-  player.missileDamage    = MISSILE_BASE_DAMAGE * (1 + 0.45 * (b.missile_damage || 0));
-  player.missileChargeTime= MISSILE_CHARGE_TIME / (1 + 0.28 * (b.missile_charge || 0));
-  // 全屏轰炸属性
+  // ===== 空袭（暂时不进池，但保留计算）=====
   const al = b.airstrike || 0;
-  player.airstrikeLevel = al;
-  player.airstrikeCount = 3 + al;                                    // 炸弹数：4~8 颗
-  player.airstrikeDamage = 80 + al * 30;                             // 单发伤害：110~230
-  player.airstrikeCD = 6.0 / (1 + 0.12 * (al > 0 ? al - 1 : 0));     // 冷却：6s 起步，逐级缩短
+  player.airstrikeLevel  = al;
+  player.airstrikeCount  = 3 + al;
+  player.airstrikeDamage = 70 + al * 25;
+  player.airstrikeCD     = 6.0 / (1 + 0.12 * (al > 0 ? al - 1 : 0));
 
-  // 生命强化：每级 +1 颗心（+4 单位）
-  const newMax = 16 + 4 * (b.vitality || 0);
-  player.maxHp = newMax;
+  // ===== 生命强化已删，maxHp 固定 16 =====
+  player.maxHp = 16;
   player.hp = Math.min(player.hp, player.maxHp);
 }
 
@@ -3287,84 +3236,9 @@ function applyBuff(id){
 }
 
 function rollBuffChoices(){
-  const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
-
-  // ============ 教学关：只从对应武器池抽取 ============
-  if(isTutorial){
-    const cfg = STAGES[waveInStage - 1];
-
-    // ★ 本关需要解锁武器且还没解锁 → 解锁卡 + 2 张普通卡（解锁卡放中间）
-    if(cfg && cfg.unlockThisStage && !unlockedWeapons[cfg.unlockThisStage]){
-      const intro = SKILL_INTROS[cfg.unlockThisStage];
-      const unlockCard = {
-        id: '__unlock__' + cfg.unlockThisStage,
-        isUnlock: true,
-        unlockKey: cfg.unlockThisStage,
-        name: '解锁：' + (intro ? intro.name : cfg.unlockThisStage),
-        desc: intro ? intro.detail : '',
-        color: intro ? intro.color : '#ffd24a',
-        max: 1
-      };
-
-      // 先抽本关 buffPool 里的普通卡（排除解锁目标）
-      const poolIds = (cfg && BUFF_POOLS[cfg.buffPool]) || [];
-      const stagePool = BUFFS.filter(b =>
-        b.id !== cfg.unlockThisStage &&
-        poolIds.indexOf(b.id) >= 0 &&
-        (player.buffLevels[b.id] || 0) < b.max
-      );
-
-      // 不够 2 张就从全池补（排除已被别的池选中的）
-      const fullPool = BUFFS.filter(b =>
-        (player.buffLevels[b.id] || 0) < b.max
-      );
-
-      const combined = stagePool.slice();
-      for(const b of fullPool){
-        if(combined.length >= 2) break;
-        if(combined.indexOf(b) >= 0) continue;
-        combined.push(b);
-      }
-
-      // 洗牌
-      for(let i = combined.length - 1; i > 0; i--){
-        const j = Math.floor(Math.random() * (i + 1));
-        [combined[i], combined[j]] = [combined[j], combined[i]];
-      }
-
-      const others = combined.slice(0, 2);
-
-      // 组成：[普通, 解锁, 普通]
-      if(others.length >= 2){
-        return [others[0], unlockCard, others[1]];
-      } else if(others.length === 1){
-        return [others[0], unlockCard];
-      } else {
-        return [unlockCard];
-      }
-    }
-
-    const poolIds = (cfg && BUFF_POOLS[cfg.buffPool]) || [];
-
-    // 只保留"还没满级"的 buff
-    const pool = BUFFS.filter(b =>
-      poolIds.indexOf(b.id) >= 0 &&
-      (player.buffLevels[b.id] || 0) < b.max
-    );
-
-    // 洗牌
-    const copy = pool.slice();
-    for(let i = copy.length - 1; i > 0; i--){
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-
-    // 最多取 3 张，不够就少给
-    return copy.slice(0, Math.min(3, copy.length));
-  }
 
   // ============ 无尽模式：原有逻辑 ============
-  const pool = BUFFS.filter(b => (player.buffLevels[b.id] || 0) < b.max);
+  const pool = BUFFS.filter(isBuffAvailable);
 
   // 首次进入 buff 界面：规划前 3 波的强制保底顺序
   if(!orbBuffGiven){
@@ -3615,25 +3489,6 @@ function updateDrops(dt){
 
 // ================= 波次 =================
 function pickType(n){
-  const isTutorial = (currentStage >= 1 && currentStage <= TUTORIAL_MAX_STAGE);
-
-  if(isTutorial){
-    // 教学关按波次逐步解锁怪（前 2 波只有 zombie）
-    const pool = [['zombie', 100]];
-    if(waveInStage >= 3) pool[0] = ['zombie', 70];
-    if(waveInStage >= 3) pool.push(['runner', 40]);   // 第 3 波起才有高速怪
-    if(waveInStage >= 4) pool.push(['spitter', 15]);
-    if(waveInStage >= 5) pool.push(['skeleton', 20]);
-    if(waveInStage >= 6) pool.push(['brute', 12]);
-    if(waveInStage >= 7) pool.push(['armored', 8]);
-    if(waveInStage >= 7) pool.push(['elite', 5]);
-    let total = 0;
-    for(const p of pool) total += p[1];
-    let r = Math.random() * total;
-    for(const p of pool){ r -= p[1]; if(r <= 0) return p[0]; }
-    return 'zombie';
-  }
-
   // 无尽模式
   const pool = [['zombie', 60]];
   if(n >= 5) pool.push(['runner', 32]);
@@ -3650,53 +3505,20 @@ function pickType(n){
 }
 function startWave(n){
   waveActive = true;
-  const isTutorial = (currentStage === 1);
 
   let bannerText;
 
-  if(isTutorial){
-    // ===== 第 1 关：教学波次 =====
-    const wcfg = TUTORIAL_WAVES[waveInStage - 1];
-    spawnQueue = [];
-    if(wcfg && wcfg.list){
-      let types = wcfg.list.slice();
-      if(wcfg.shuffle){
-        for(let i = types.length - 1; i > 0; i--){
-          const j = Math.floor(Math.random() * (i + 1));
-          [types[i], types[j]] = [types[j], types[i]];
-        }
-      }
-      for(let i = 0; i < types.length; i++){
-        spawnQueue.push({ type: types[i], t: i * wcfg.interval });
-      }
-      waveTotal = types.length;
-    } else {
-      waveTotal = 0;
-    }
-    waveSpawn.active = false;
-    bannerText = '教学 · 第 ' + waveInStage + ' / ' + STAGE_WAVES + ' 波';
-  } else if(currentStage >= 2){
-    // ===== 第 2 关起：关卡模式 =====
+  if(currentStage >= 1){
+    // ===== 关卡模式（10 关，每关 4 波 × 1 方阵） =====
     const cfg = getStageConfig(currentStage);
     const wcfg = cfg.waves[waveInStage - 1];
-    spawnQueue = [];
-    if(wcfg && wcfg.list){
-      let types = wcfg.list.slice();
-      if(wcfg.shuffle){
-        for(let i = types.length - 1; i > 0; i--){
-          const j = Math.floor(Math.random() * (i + 1));
-          [types[i], types[j]] = [types[j], types[i]];
-        }
-      }
-      for(let i = 0; i < types.length; i++){
-        spawnQueue.push({ type: types[i], t: i * wcfg.interval });
-      }
-      waveTotal = types.length;
-    } else {
-      waveTotal = 0;
-    }
+
+    const preset = [0, 1, 2, 3, 4];
+
+    spawnQueue = makeFormationQueue(wcfg.formationTypes, preset);
+    waveTotal = 15;
     waveSpawn.active = false;
-    bannerText = '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 3 波';
+    bannerText = '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 4 波';
   } else {
     // ===== 无尽模式 =====
     const totalCount = getEndlessCount(n);
@@ -3770,34 +3592,47 @@ function isWaveClear(){
   return lastPool.remaining === 0 && enemies.length === 0;
 }
 
-function spawnEnemy(type){
+// ================= 生成方阵的刷怪队列 =================
+// types: 长度 9 的类型数组（索引 0~2 是后排，3~5 中排，6~8 前排）
+// colIndexes: 方阵占用的 3 个列索引（在 FORMATION_POINTS_X 中的下标）
+function makeFormationQueue(types, colIndexes){
+  const queue = [];
+  const COLS = colIndexes.length;      // 5
+  const ROWS = 3;
+  const totalSpawnTime = (COLS * ROWS) * FORMATION_SPAWN_DELAY;
+
+  for(let i = 0; i < COLS * ROWS; i++){
+    // 按行优先排：前 COLS 只是后排，中间 COLS 只是中排，最后 COLS 只是前排
+    const row = Math.floor(i / COLS);   // 0=后排 1=中排 2=前排
+    const col = i % COLS;
+    const x = FORMATION_POINTS_X[colIndexes[col]];
+    const y = FORMATION_BASE_Y - (2 - row) * FORMATION_ROW_GAP;
+    queue.push({
+      type: types[i],
+      x: x,
+      y: y,
+      t: i * FORMATION_SPAWN_DELAY,
+      isFormation: true,
+      formationDelay: (totalSpawnTime - i * FORMATION_SPAWN_DELAY) + FORMATION_START_DELAY
+    });
+  }
+  return queue;
+}
+
+function spawnEnemy(type, spawnX, spawnY, isFormation, formationDelay){
   const base = ENEMY_TYPES[type];
 
-  let x = rand(150, WORLD.w - 150);
-  let y = -60 - rand(0, 80);
+  let x = (spawnX !== undefined && spawnX !== null) ? spawnX : rand(150, WORLD.w - 150);
+  let y = (spawnY !== undefined && spawnY !== null) ? spawnY : (-60 - rand(0, 80));
 
-  const isTutorial = (currentStage === 1);
   let hpScale, spScale, dmgScale;
 
-  if(isTutorial){
-    // 教学关：每只怪 HP 固定
-    const TUT_HP = {
-      zombie: 40, runner: 40, spitter: 80,
-      skeleton: 120, brute: 250,
-      armored: 400, elite: 600
-    };
-    const thp = TUT_HP[type] !== undefined ? TUT_HP[type] : 40;
-    hpScale = thp / base.hp;
-    spScale = 1.0;
-    dmgScale = 1.0;
-  } else if(currentStage >= 2){
-    // ★ 闯关模式第 2 关起：按关卡缩放
+  if(currentStage >= 1){
     const cfg = getStageConfig(currentStage);
     hpScale = cfg.hpScale;
     spScale = cfg.spScale;
     dmgScale = cfg.dmgScale;
   } else {
-    // 无尽模式
     const w = Math.max(1, wave);
     hpScale = getEndlessHpScale(w);
     spScale = getEndlessSpScale(w);
@@ -3820,13 +3655,18 @@ function spawnEnemy(type){
     skeleton: !!base.skeleton, demon: !!base.demon,
     angle: 0, atkCd: 0, hitFlash: 0, slowTimer: 0, frozenTimer: 0,
     ranged: !!base.ranged, shootCd: rand(1, 2.5),
-    // 护盾
-    shieldMax: 0, shield: 0, shieldMult: null, shieldBroken: false
+    shieldMax: 0, shield: 0, shieldMult: null, shieldBroken: false,
+    formation: !!isFormation,
+    formationDelay: formationDelay || 0
   };
 
- if(base.armored && base.shieldBaseHP){
+  if(isFormation){
+    e.speed = FORMATION_SPEED;
+  }
+
+  if(base.armored && base.shieldBaseHP){
     if(isTutorial){
-      e.shieldMax = 200;   // 教学关固定：罐头一发破 / 导弹两发破
+      e.shieldMax = 200;
     } else {
       e.shieldMax = base.shieldBaseHP * hpScale;
     }
@@ -3958,6 +3798,16 @@ function drawSingleOrb(ox, oy, radius){
 }
 
 // ================= 导弹 =================
+// 返回按血量排序的前 N 个敌人（不重复）
+function findTopHpEnemies(count){
+  const arr = [];
+  for(const e of enemies){
+    if(e.dead) continue;
+    arr.push(e);
+  }
+  arr.sort((a, b) => b.hp - a.hp);
+  return arr.slice(0, count);
+}
 function findHighestHpEnemy(){
   let best = null, bestHp = -1;
   for(const e of enemies){
@@ -3971,25 +3821,29 @@ function fireMissile(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.missile) return;
   if(catBroTakenSkills.indexOf('missile') >= 0) return;
-  if(player.missileCharges <= 0) return;
+  if(player.missileCooldown > 0) return;
   if(enemies.length === 0) return;
 
-  player.missileCharges--;
+  player.missileCooldown = player.missileCooldownMax;
+
   const count = player.missileCount;
+  // ★ 按血量从高到低取敌人，导弹循环分配
+  const targets = findTopHpEnemies(count);
+  if(targets.length === 0) return;
 
   for(let i = 0; i < count; i++){
+    const target = targets[i % targets.length];
+
     const a = (i / count) * TAU + Math.random() * 0.4;
     const sx = player.x + Math.cos(a) * 18;
     const sy = player.y + Math.sin(a) * 18;
-    const target = findHighestHpEnemy();
-    if(!target) break;
-
     const dirA = Math.atan2(target.y - sy, target.x - sx);
+
     missileList.push({
       x: sx, y: sy,
-      vx: 0, vy: 0,                 // ★ 先静止
-      launchA: dirA,                // ★ 待发射方向
-      spawnDelay: i * 0.08,         // ★ 每颗延迟 80ms
+      vx: 0, vy: 0,
+      launchA: dirA,
+      spawnDelay: i * 0.08,
       targetId: target.id,
       damage: player.missileDamage,
       life: 3.5,
@@ -4004,14 +3858,9 @@ function fireMissile(){
 }
 
 function updateMissiles(dt){
-  if(player.missileCharges < player.missileChargeMax){
-    player.missileChargeTimer += dt;
-    if(player.missileChargeTimer >= player.missileChargeTime){
-      player.missileChargeTimer -= player.missileChargeTime;
-      player.missileCharges++;
-    }
-  } else {
-    player.missileChargeTimer = 0;
+  // ★ 冷却计时
+  if(player.missileCooldown > 0){
+    player.missileCooldown = Math.max(0, player.missileCooldown - dt);
   }
 
   for(let i = missileList.length - 1; i >= 0; i--){
@@ -4167,7 +4016,7 @@ function tryThrowCan(){
     const d = Math.hypot(e.x - player.x, e.y - player.y);
     if(d < bd){ bd = d; best = e; }
   }
-  if(!best || bd > 900) return false;
+  if(!best || bd > CAN_ATTACK_RANGE) return false;
 
   // 直接投到敌人当前位置（带一点随机偏移，避免每次都完全重合）
   const tx = best.x + rand(-15, 15);
@@ -4268,13 +4117,13 @@ function findNearestEnemies(count, excludeIds){
 }
 
 let laserCooldown = 0;          // 当前剩余冷却
-const LASER_COOLDOWN_MAX = 10;  // 冷却总时长
+const LASER_COOLDOWN_MAX = 8;   // 冷却总时长
 
 function fireOrb(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.orb) return;
   if(catBroTakenSkills.indexOf('orb') >= 0) return;
-  if(player.orbActiveTimer > 0) return;
+  if(player.orbCooldown > 0) return;
   if(player.orbCooldown > 0) return;
   if(player.orbCount <= 0) return;
 
@@ -4295,13 +4144,13 @@ function fireLaser(){
   if(laserCooldown > 0) return;
   if(enemies.length === 0) return;
 
-  laserCooldown = LASER_COOLDOWN_MAX;
   laser.active = true;
   laser.angle = -Math.PI / 2;   // 永远朝正上方
   laser.timer = 0;
   laser.dps = player.laserDamage * 0.35;
   laser.flash = 1;
   laser.hitSet = new Map();
+  // ★ 冷却不在这里设，等持续结束后开始计
 
   say(randLine(LINES.laser), true);
   cam.shake = Math.max(cam.shake, 10);
@@ -4323,8 +4172,7 @@ function updateLaser(dt){
   const sinA = Math.sin(laser.angle);
 
   const rawDmg = laser.dps * dt;
-  const laserWidthBonus = player.buffLevels.laserpower || 0;
-  const beamHalfWidth = 22 * (1 + 0.18 * laserWidthBonus);
+  const beamHalfWidth = 22 * (player.laserWidthMult || 1);
 
   for(const e of enemies){
     if(e.dead) continue;
@@ -4339,7 +4187,7 @@ function updateLaser(dt){
     if(perp > e.r + beamHalfWidth) continue;
 
     dealDamage(e, rawDmg, 'laser', { silent: true, noCrit: true });
-    e.slowTimer = 0.25;
+    e.slowTimer = player.laserSlowTime || 0.25;
 
     let hi = laser.hitSet.get(e.id);
     if(!hi){ hi = { accum: 0, timer: 0 }; laser.hitSet.set(e.id, hi); }
@@ -4371,6 +4219,7 @@ function updateLaser(dt){
   if(laser.timer >= laser.duration){
     laser.active = false;
     laser.hitSet.clear();
+    laserCooldown = player.laserCooldownMax;   // ★ 持续结束，开始计冷却
   }
 }
 
@@ -4442,10 +4291,6 @@ function update(dt){
     audioLevel = audioLevel * 0.7 + target * 0.3;
   }
 
-  // 技能 tips 淡入进度（不自动消失，点击别处才关）
-  if(skillTip.type){
-    skillTip.fade = Math.min(1, (skillTip.fade || 0) + dt * 5);
-  }
 
   // BGM 与游戏状态同步
   syncBGM();
@@ -4485,26 +4330,10 @@ function update(dt){
   gameTime += dt;
   updateEffects(dt);
 
-  // 长按检测
-  if(pressState.laserHold){
-    pressState.laserTimer += dt;
-    if(pressState.laserTimer >= SKILL_TIP_LONGPRESS){
-      if(skillTip.type !== 'laser') skillTip = { type: 'laser', fade: 0 };
-    }
+  // ★ 激光持续中不计冷却，结束后才计
+  if(!laser.active && laserCooldown > 0){
+    laserCooldown = Math.max(0, laserCooldown - dt);
   }
-  if(pressState.missileHold){
-    pressState.missileTimer += dt;
-    if(pressState.missileTimer >= SKILL_TIP_LONGPRESS){
-      if(skillTip.type !== 'missile') skillTip = { type: 'missile', fade: 0 };
-    }
-  }
-
-  // 自动释放滑块动画
-  const targetAnim = autoCast ? 1 : 0;
-  autoCastAnim += (targetAnim - autoCastAnim) * Math.min(1, dt * 12);
-  if(Math.abs(targetAnim - autoCastAnim) < 0.005) autoCastAnim = targetAnim;
-
-  if(laserCooldown > 0) laserCooldown = Math.max(0, laserCooldown - dt);
 
   // ★ 毛球计时
   if(player.orbActiveTimer > 0){
@@ -4525,19 +4354,19 @@ function update(dt){
     if(tryThrowCan()) canAutoTimer = 0;
   }
 
-  // ===== 自动释放技能 =====
-  if(autoCast && enemies.length > 0){
-    // 自动激光
-    if(!laser.active && laserCooldown <= 0){
+  // ===== 自动释放技能（有敌人才放） =====
+  if(enemies.length > 0){
+    // 激光：冷却好 + 没在放
+    if(unlockedWeapons.laser && !laser.active && laserCooldown <= 0){
       fireLaser();
     }
-    // 自动导弹：附近至少 2 只敌人才放
-    if(player.missileCharges > 0 && enemies.length >= 2){
-      let nearCount = 0;
-      for(const e of enemies){
-        if(Math.hypot(e.x - player.x, e.y - player.y) < 500) nearCount++;
-      }
-      if(nearCount >= 2) fireMissile();
+    // 导弹：冷却好
+    if(unlockedWeapons.missile && player.missileCooldown <= 0){
+      fireMissile();
+    }
+    // 毛球：冷却好 + 不在激活中
+    if(unlockedWeapons.orb && player.orbActiveTimer <= 0 && player.orbCooldown <= 0){
+      fireOrb();
     }
   }
 
@@ -4801,19 +4630,31 @@ function update(dt){
           life: 3
         });
       }
+    } else if(e.formation){
+      // ★ 方阵怪：先等 formationDelay（让整个方阵整齐起步），然后直线向下
+      if(e.formationDelay > 0){
+        e.formationDelay -= dt;
+      } else {
+        e.y += e.speed * slowMul * dt;
+      }
     } else if(d > e.r + player.r - 2){
-      // 距离远时先朝屏幕下方直走；进入 450 距离才开始追玩家
+      // 无尽模式原逻辑：距离远先直走，近了追玩家
       const TRACK_DIST = 450;
       let moveAngle = e.angle;
       if(d > TRACK_DIST){
-        moveAngle = Math.PI / 2;   // 朝下（屏幕 y 增大）
+        moveAngle = Math.PI / 2;
       }
       e.x += Math.cos(moveAngle) * e.speed * slowMul * dt;
       e.y += Math.sin(moveAngle) * e.speed * slowMul * dt;
     }
 
     e.x = clamp(e.x, e.r, WORLD.w - e.r);
-    e.y = clamp(e.y, e.r, WORLD.h - e.r);
+    // 方阵怪允许在屏幕上沿之外（从 -1000 到屏幕下方）
+    if(e.formation){
+      e.y = Math.min(e.y, WORLD.h + 200);
+    } else {
+      e.y = clamp(e.y, e.r, WORLD.h - e.r);
+    }
 
     if(!frozen && d < e.r + player.r && e.atkCd <= 0){
       e.atkCd = 0.8;
@@ -4822,7 +4663,13 @@ function update(dt){
   }
 
   for(let i = enemies.length - 1; i >= 0; i--){
-    if(enemies[i].dead) enemies.splice(i, 1);
+    const e = enemies[i];
+    if(e.dead){
+      enemies.splice(i, 1);
+    } else if(e.formation && e.y > WORLD.h + 80){
+      // ★ 方阵怪走出屏幕底部（暂时直接消失，第二批加城池扣血）
+      enemies.splice(i, 1);
+    }
   }
 
   for(let i = eBullets.length - 1; i >= 0; i--){
@@ -4872,7 +4719,8 @@ function update(dt){
       for(let i = spawnQueue.length - 1; i >= 0; i--){
         spawnQueue[i].t -= dt;
         if(spawnQueue[i].t <= 0){
-          spawnEnemy(spawnQueue[i].type);
+          const sq = spawnQueue[i];
+          spawnEnemy(sq.type, sq.x, sq.y, sq.isFormation, sq.formationDelay);
           spawnQueue.splice(i, 1);
         }
       }
@@ -4888,25 +4736,10 @@ function update(dt){
       const bonus = 60 * wave;
       score += bonus;
 
-      const isTutorial = (currentStage === 1);
-      const isStageMode = (currentStage >= 2);
+      const isStageMode = (currentStage >= 1);
 
-      // ============ 第 1 关：教学完成 ============
-      if(isTutorial && waveInStage >= STAGE_WAVES){
-        buffChoices = rollBuffChoices();
-        if(buffChoices.length > 0){
-          pendingStageClearAfterBuff = true;
-          waveClearTimer = 1.5;
-          waveBreakTimer = 99;
-        } else {
-          waveBreakTimer = 99;
-          showStageVictory();
-        }
-        return;
-      }
-
-      // ============ 第 2 关起：3 波完成 ============
-      if(isStageMode && waveInStage >= 3){
+      // ============ 4 波完成 ============
+      if(isStageMode && waveInStage >= 4){
         buffChoices = rollBuffChoices();
         if(buffChoices.length > 0){
           pendingStageClearAfterBuff = true;
@@ -4920,10 +4753,8 @@ function update(dt){
       }
 
       // ============ 普通清波 ============
-      if(isTutorial){
-        banner = { text: '教学 · 第 ' + waveInStage + ' 波清除', life: 1.5 };
-      } else if(isStageMode){
-        banner = { text: '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 3 波清除', life: 1.5 };
+      if(isStageMode){
+        banner = { text: '第 ' + currentStage + ' 关 · 第 ' + waveInStage + ' / 4 波清除', life: 1.5 };
       } else {
         banner = { text: '第 ' + wave + ' 波清除', life: 1.5 };
       }
@@ -5832,7 +5663,7 @@ function catBroThrowCan(catBro){
     const d = Math.hypot(e.x - catBro.x, e.y - catBro.y);
     if(d < bd){ bd = d; best = e; }
   }
-  if(!best || bd > 800) return false;
+  if(!best || bd > CAN_ATTACK_RANGE) return false;
   const tx = best.x + rand(-15, 15);
   const ty = best.y + rand(-15, 15);
   cans.push({
@@ -6098,7 +5929,9 @@ function drawCatBroSelect(){
 function doAirstrike(){
   const targets = [];
   for(const e of enemies){
-    if(!e.dead) targets.push(e);
+    if(e.dead) continue;
+    const d = Math.hypot(e.x - player.x, e.y - player.y);
+    if(d < AIRSTRIKE_RANGE) targets.push(e);   // ★ 只打半屏内的敌人
   }
   if(targets.length === 0) return;
 
@@ -6220,114 +6053,135 @@ function drawAirstrikeBombs(){
 function drawSkillIcons(){
   const cx = 46;
   const R = 28;
-  const step = 104;
+  const startY = H * 0.38;
+  const gap = 100;
 
-  // ---------- 罐头 ----------
+  // 收集要显示的所有技能
+  const skills = [];
+
+  // ===== 激光 =====
+  if(unlockedWeapons.laser && catBroTakenSkills.indexOf('laser') < 0){
+    const cdMax = player.laserCooldownMax || LASER_COOLDOWN_MAX;
+    const cdP = laser.active ? 0 : (laserCooldown > 0 ? 1 - laserCooldown / cdMax : 1);
+    skills.push({
+      icon: 'laser_width',
+      color: '#88eeff',
+      cdP: cdP,
+      remain: laserCooldown,
+      ready: laserCooldown <= 0 && !laser.active,
+      label: laser.active ? '发射中' : null,
+      labelColor: 'success'
+    });
+  }
+
+  // ===== 导弹 =====
+  if(unlockedWeapons.missile && catBroTakenSkills.indexOf('missile') < 0){
+    const cdMax = player.missileCooldownMax || 5;
+    const cdP = player.missileCooldown > 0 ? 1 - player.missileCooldown / cdMax : 1;
+    skills.push({
+      icon: 'missile_count',
+      color: '#ff8a3c',
+      cdP: cdP,
+      remain: player.missileCooldown,
+      ready: player.missileCooldown <= 0,
+      label: null,
+      labelColor: 'accent'
+    });
+  }
+
+  // ===== 毛球 =====
+  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0){
+    let cdP, remain, label = null;
+    if(player.orbActiveTimer > 0){
+      cdP = 1;
+      remain = player.orbActiveTimer;
+      label = '生效中';
+    } else if(player.orbCooldown > 0){
+      cdP = 1 - player.orbCooldown / ORB_COOLDOWN;
+      remain = player.orbCooldown;
+    } else {
+      cdP = 1;
+      remain = 0;
+    }
+    skills.push({
+      icon: 'orb_count',
+      color: '#ffb0d0',
+      cdP: cdP,
+      remain: remain,
+      ready: player.orbActiveTimer <= 0 && player.orbCooldown <= 0,
+      label: label,
+      labelColor: 'success'
+    });
+  }
+
+  // ===== 罐头 =====
   if(unlockedWeapons.can && catBroTakenSkills.indexOf('can') < 0){
-    const cy = H * 0.50;
-    const cdTotal = CAN_AUTO_INTERVAL;
-    const cdP = Math.min(1, canAutoTimer / cdTotal);
-    const remain = Math.max(0, cdTotal - canAutoTimer);
-    const justUsed = canAutoTimer < 0.5;
+    const cdP = Math.min(1, canAutoTimer / CAN_AUTO_INTERVAL);
+    skills.push({
+      icon: 'canpower',
+      color: '#ff9f6b',
+      cdP: cdP,
+      remain: Math.max(0, CAN_AUTO_INTERVAL - canAutoTimer),
+      ready: cdP >= 1,
+      label: null,
+      labelColor: 'accent'
+    });
+  }
+
+  // ===== 空袭 =====
+  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
+    const cdTotal = player.airstrikeCD || 6;
+    const cdP = Math.min(1, airstrikeTimer / cdTotal);
+    skills.push({
+      icon: 'airstrike',
+      color: '#ff6b4a',
+      cdP: cdP,
+      remain: Math.max(0, cdTotal - airstrikeTimer),
+      ready: cdP >= 1,
+      label: null,
+      labelColor: 'accent'
+    });
+  }
+
+  // ===== 逐个绘制 =====
+  for(let i = 0; i < skills.length; i++){
+    const s = skills[i];
+    const y = startY + i * gap;
 
     ctx.save();
-
-    // 使用闪烁光环
-    if(justUsed){
-      const flash = 1 - canAutoTimer / 0.5;
-      ctx.strokeStyle = 'rgba(255,220,80,' + flash + ')';
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R + 8 + (1 - flash) * 14, 0, TAU);
-      ctx.stroke();
-    }
 
     // 圆底
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, y, R, 0, TAU); ctx.fill();
 
-    // 罐头图标
-    ctx.fillStyle = '#c6ced4';
-    ctx.beginPath(); ctx.ellipse(cx, cy - 3, 11, 9, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#e8543f';
-    ctx.fillRect(cx - 11, cy - 6, 22, 7);
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath(); ctx.ellipse(cx - 3, cy - 5, 3, 1.5, 0, 0, TAU); ctx.fill();
+    // 图标
+    drawBuffIcon(s.icon, cx, y, R * 1.15, s.color);
 
-    // ===== 扇形阴影（剩余冷却） =====
-    if(cdP < 1){
-      const startAngle = -Math.PI/2 + TAU * cdP;
+    // 扇形冷却阴影
+    if(s.cdP < 1){
+      const startAngle = -Math.PI/2 + TAU * s.cdP;
       const endAngle = -Math.PI/2 + TAU;
       ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, R, startAngle, endAngle);
+      ctx.moveTo(cx, y);
+      ctx.arc(cx, y, R, startAngle, endAngle);
       ctx.closePath();
       ctx.fillStyle = 'rgba(0,0,0,0.72)';
       ctx.fill();
     }
 
-    // 边框
-    ctx.strokeStyle = cdP >= 1 ? '#ffe080' : '#ffcf5c';
+    // 边框（就绪时用主色，否则灰蓝）
+    ctx.strokeStyle = s.ready ? s.color : 'rgba(120,150,180,0.6)';
     ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, y, R, 0, TAU); ctx.stroke();
 
-    drawUIText(remain.toFixed(1), cx, cy + R + 18, 'accent', { size: 22, strokeWidth: 5 });
-
-    ctx.restore();
-  }
-
-  // ---------- 全屏轰炸 ----------
-  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
-    const cy = H * 0.50 + step;
-    const cdTotal = player.airstrikeCD;
-    const cdP = Math.min(1, airstrikeTimer / cdTotal);
-    const remain = Math.max(0, cdTotal - airstrikeTimer);
-    const justUsed = airstrikeTimer < 0.5;
-
-    ctx.save();
-
-    if(justUsed){
-      const flash = 1 - airstrikeTimer / 0.5;
-      ctx.strokeStyle = 'rgba(255,140,60,' + flash + ')';
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R + 8 + (1 - flash) * 14, 0, TAU);
-      ctx.stroke();
+    // 文字
+    if(s.label){
+      drawUIText(s.label, cx, y + R + 18, s.labelColor, { size: 16, strokeWidth: 4 });
+    } else if(s.ready){
+      drawUIText('就绪', cx, y + R + 18, 'accent', { size: 18, strokeWidth: 4 });
+    } else {
+      drawUIText(s.remain.toFixed(1), cx, y + R + 18, 'accent', { size: 20, strokeWidth: 4 });
     }
-
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
-
-    // 炸弹图标
-    ctx.fillStyle = '#ffb84a';
-    ctx.beginPath(); ctx.arc(cx, cy + 2, 11, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#ffb84a';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(cx + 4, cy - 8);
-    ctx.lineTo(cx + 9, cy - 15);
-    ctx.stroke();
-    ctx.fillStyle = '#ff5a3a';
-    ctx.beginPath(); ctx.arc(cx + 10, cy - 16, 3, 0, TAU); ctx.fill();
-
-    // ===== 扇形阴影 =====
-    if(cdP < 1){
-      const startAngle = -Math.PI/2 + TAU * cdP;
-      const endAngle = -Math.PI/2 + TAU;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, R, startAngle, endAngle);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(0,0,0,0.72)';
-      ctx.fill();
-    }
-
-    // 边框
-    ctx.strokeStyle = cdP >= 1 ? '#ffcf8a' : '#ff8a3c';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
-
-    drawUIText(remain.toFixed(1), cx, cy + R + 18, 'accent', { size: 22, strokeWidth: 5 });
 
     ctx.restore();
   }
@@ -6538,114 +6392,7 @@ function drawHelpQuickBtn(){
   });
 }
 
-function drawAutoCastBtn(){
-  const b = AUTO_BTN;
-  const W2 = b.w;
-  const H2 = b.h;
-  const padding = 4;
-  const knobR = (H2 - padding * 2) / 2;
-  const t = autoCastAnim;   // 0 → 1 插值
 
-  // 滑块位置随动画插值
-  const leftX  = b.x - W2/2 + padding + knobR;
-  const rightX = b.x + W2/2 - padding - knobR;
-  const knobX  = leftX + (rightX - leftX) * t;
-
-  // 颜色插值（关=灰，开=绿）
-  function lerpColor(c1, c2, k){
-    return [
-      Math.round(c1[0] + (c2[0] - c1[0]) * k),
-      Math.round(c1[1] + (c2[1] - c1[1]) * k),
-      Math.round(c1[2] + (c2[2] - c1[2]) * k)
-    ];
-  }
-
-  const colStart = lerpColor([150, 158, 170], [96, 240, 150], t);
-  const colEnd   = lerpColor([100, 108, 120], [34, 180, 90],  t);
-  const colStartStr = 'rgb(' + colStart.join(',') + ')';
-  const colEndStr   = 'rgb(' + colEnd.join(',') + ')';
-
-  ctx.save();
-
-
-  // ===== 胶囊底 =====
-  const bgGrd = ctx.createLinearGradient(b.x - W2/2, b.y - H2/2, b.x + W2/2, b.y + H2/2);
-  bgGrd.addColorStop(0, colStartStr);
-  bgGrd.addColorStop(1, colEndStr);
-  ctx.fillStyle = bgGrd;
-  rr(b.x - W2/2, b.y - H2/2, W2, H2, H2/2);
-  ctx.fill();
-
-  // 内阴影（顶部压暗，底部提亮）
-  ctx.save();
-  rr(b.x - W2/2, b.y - H2/2, W2, H2, H2/2);
-  ctx.clip();
-  const shadow = ctx.createLinearGradient(b.x, b.y - H2/2, b.x, b.y + H2/2);
-  shadow.addColorStop(0, 'rgba(0,0,0,0.32)');
-  shadow.addColorStop(0.45, 'rgba(0,0,0,0)');
-  shadow.addColorStop(0.85, 'rgba(255,255,255,0.14)');
-  shadow.addColorStop(1, 'rgba(255,255,255,0.2)');
-  ctx.fillStyle = shadow;
-  ctx.fillRect(b.x - W2/2, b.y - H2/2, W2, H2);
-  ctx.restore();
-
-  // 边框
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 1.5;
-  rr(b.x - W2/2, b.y - H2/2, W2, H2, H2/2);
-  ctx.stroke();
-
-  // ===== 滑块底部阴影 =====
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  ctx.beginPath();
-  ctx.arc(knobX, b.y + 1.5, knobR, 0, TAU);
-  ctx.fill();
-
-  // ===== 滑块（白色圆） =====
-  const knobGrd = ctx.createRadialGradient(
-    knobX - knobR * 0.4, b.y - knobR * 0.4, knobR * 0.1,
-    knobX, b.y, knobR * 1.15
-  );
-  knobGrd.addColorStop(0, '#ffffff');
-  knobGrd.addColorStop(0.65, '#f8f8f8');
-  knobGrd.addColorStop(1, '#dadada');
-  ctx.fillStyle = knobGrd;
-  ctx.beginPath();
-  ctx.arc(knobX, b.y, knobR, 0, TAU);
-  ctx.fill();
-
-  // 滑块边框
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(knobX, b.y, knobR, 0, TAU);
-  ctx.stroke();
-
-  // ===== 滑块上的文字（随动画切换） =====
-  const textOn = t > 0.5;
-  ctx.fillStyle = textOn ? '#22a85a' : '#808890';
-  ctx.font = 'bold ' + Math.floor(knobR * 1.35) + 'px "Microsoft YaHei",sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(textOn ? '开' : '关', knobX, b.y + 1);
-  ctx.textBaseline = 'alphabetic';
-
-  const labelText = '自动释放技能';
-  ctx.save();
-  ctx.font = 'bold 16px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(labelText).width;
-  const labelY = b.y - H2/2 - 12;
-  rr(b.x - tw/2 - 11, labelY - 11, tw + 22, 24, 8);
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
-  ctx.fill();
-  ctx.strokeStyle = autoCast ? '#4ade80' : 'rgba(150,160,160,0.7)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-  drawUIText(labelText, b.x, labelY + 6, autoCast ? 'success' : 'muted', { size: 16 });
-
-  ctx.restore();
-}
 // ================= 摇杆 =================
 function drawJoystick(j, base, color, label){
   const isActive = j.id !== -1;
@@ -6708,360 +6455,6 @@ function drawPauseButton(){
   // icon_pause 素材自带圆角方形底，直接放大当按钮
   const btnSize = r * 1.9;
   UI.drawIcon(ctx, 'icon_pause', x - btnSize/2, y - btnSize/2, btnSize);
-}
-
-function drawOrbButton(){
-  const b = ORB_BTN;
-  const R = b.r;
-  const onCooldown = player.orbCooldown > 0;
-  const active = player.orbActiveTimer > 0;
-  const ready = !onCooldown && !active;
-  const pulse = 0.5 + Math.sin(gameTime * 8) * 0.5;
-
-  ctx.save();
-
-  // 外发光
-  if(ready || active){
-    const color = active ? '255,255,255' : '255, 176, 208';
-    ctx.strokeStyle = 'rgba(' + color + ',' + (0.6 - pulse * 0.35) + ')';
-    ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(b.x, b.y, R + 6 + pulse * 6, 0, TAU); ctx.stroke();
-  }
-
-  // 圆底
-  const bgGrd = ctx.createRadialGradient(b.x - R*0.35, b.y - R*0.35, R*0.1, b.x, b.y, R);
-  bgGrd.addColorStop(0, '#a04868');
-  bgGrd.addColorStop(0.6, '#602040');
-  bgGrd.addColorStop(1, '#2a0c18');
-  ctx.fillStyle = bgGrd;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
-
-  // 冷却扇形（只有冷却期间显示）
-  if(player.orbCooldown > 0){
-    const cdP = Math.min(1, player.orbCooldown / ORB_COOLDOWN);
-    const startAngle = -Math.PI/2 + TAU * (1 - cdP);
-    const endAngle = -Math.PI/2 + TAU;
-    ctx.beginPath();
-    ctx.moveTo(b.x, b.y);
-    ctx.arc(b.x, b.y, R, startAngle, endAngle);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,0,0,0.68)';
-    ctx.fill();
-  }
-
-  // 活动时环形倒计时
-  if(active){
-    const remainP = player.orbActiveTimer / ORB_DURATION;
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.arc(b.x, b.y, R + 2, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = '#ffb0d0';
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, R + 2, -Math.PI/2 + TAU * (1 - remainP), -Math.PI/2 + TAU);
-    ctx.stroke();
-  }
-
-  // 边框
-  ctx.strokeStyle = active ? '#ffffff' : (ready ? '#ffb0d0' : 'rgba(180, 120, 150, 0.6)');
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
-
-  // 毛球图标
-  const iconColor = ready || active ? '#ffffff' : '#c090a8';
-  ctx.save();
-  ctx.translate(b.x, b.y);
-  if(active) ctx.rotate(gameTime * 3);
-  ctx.fillStyle = iconColor;
-  ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
-  for(let i = 0; i < 8; i++){
-    const a = i * TAU / 8;
-    ctx.beginPath();
-    ctx.arc(Math.cos(a) * 14, Math.sin(a) * 14, 4, 0, TAU);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // 状态文字
-  if(active){
-    drawUIText(player.orbActiveTimer.toFixed(1) + 's', b.x, b.y + R + 20, 'accent', { size: 18 });
-  } else if(onCooldown){
-    drawUIText(player.orbCooldown.toFixed(1) + 's', b.x, b.y + R + 20, 'muted', { size: 18 });
-  } else {
-    drawUIText('就绪', b.x, b.y + R + 20, 'accent', { size: 18 });
-  }
-
-  // 底部标签
-  const label = '毛球 (Q)';
-  ctx.save();
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(label).width;
-  rr(b.x - tw/2 - 9, b.y + R + 28, tw + 18, 26, 8);
-  ctx.fillStyle = 'rgba(0,0,0,0.72)';
-  ctx.fill();
-  ctx.restore();
-  drawUIText(label, b.x, b.y + R + 46, ready || active ? 'body' : 'muted', { size: 18 });
-
-  ctx.restore();
-}
-
-function drawMissileButton(){
-  const b = MISSILE_BTN;
-  const charges = player.missileCharges;
-  const maxCharges = player.missileChargeMax;
-  const ready = charges > 0;
-  const R = b.r;
-  const pulse = 0.5 + Math.sin(gameTime * 7) * 0.5;
-
-  const fillP = charges >= maxCharges ? 1 : Math.min(1, player.missileChargeTimer / player.missileChargeTime);
-  const fullReady = fillP >= 1;
-
-  ctx.save();
-
-  // 就绪外发光
-  if(fullReady){
-    ctx.strokeStyle = 'rgba(255,190,90,' + (0.65 - pulse * 0.35) + ')';
-    ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.arc(b.x, b.y, R + 8 + pulse * 8, 0, TAU); ctx.stroke();
-  }
-
-  // 圆底：深棕 → 亮橙
-  const bgGrd = ctx.createRadialGradient(b.x - R*0.3, b.y - R*0.3, R*0.15, b.x, b.y, R);
-  bgGrd.addColorStop(0, '#b06030');
-  bgGrd.addColorStop(0.55, '#6a3018');
-  bgGrd.addColorStop(1, '#2a1208');
-  ctx.fillStyle = bgGrd;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
-
-  // 内环高光（模拟金属感）
-  ctx.strokeStyle = 'rgba(255,190,120,0.28)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R - 4, 0, TAU); ctx.stroke();
-
-  // 灌水填充
-  if(fillP > 0){
-    ctx.save();
-    ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.clip();
-
-    const waterGrd = ctx.createLinearGradient(b.x, b.y - R, b.x, b.y + R);
-    if(fullReady){
-      waterGrd.addColorStop(0, '#ffd870');
-      waterGrd.addColorStop(0.5, '#ff9a30');
-      waterGrd.addColorStop(1, '#c86018');
-    } else {
-      waterGrd.addColorStop(0, '#f0a050');
-      waterGrd.addColorStop(1, '#a04820');
-    }
-    ctx.fillStyle = waterGrd;
-
-    const fillHeight = R * 2 * fillP;
-    const waterTopBase = b.y + R - fillHeight;
-    const waveAmp = fillP < 1 ? 4 : 0;
-    const wavePhase = gameTime * 4;
-
-    ctx.beginPath();
-    ctx.moveTo(b.x - R - 2, b.y + R + 2);
-    ctx.lineTo(b.x - R - 2, waterTopBase);
-    const steps = 16;
-    for(let i = 0; i <= steps; i++){
-      const t = i / steps;
-      const wx = b.x - R + R * 2 * t;
-      const waveY = waterTopBase + Math.sin(wavePhase + t * TAU * 2) * waveAmp;
-      ctx.lineTo(wx, waveY);
-    }
-    ctx.lineTo(b.x + R + 2, b.y + R + 2);
-    ctx.closePath();
-    ctx.fill();
-
-    if(fillP < 1){
-      ctx.strokeStyle = 'rgba(255,240,200,0.9)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      for(let i = 0; i <= steps; i++){
-        const t = i / steps;
-        const wx = b.x - R + R * 2 * t;
-        const waveY = waterTopBase + Math.sin(wavePhase + t * TAU * 2) * waveAmp;
-        if(i === 0) ctx.moveTo(wx, waveY); else ctx.lineTo(wx, waveY);
-      }
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 明显边框（双层）
-  ctx.strokeStyle = fullReady ? '#ffb860' : 'rgba(200,130,70,0.95)';
-  ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
-  // 外圈暗边
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R + 3, 0, TAU); ctx.stroke();
-
-  // 导弹图标
-  ctx.save();
-  ctx.translate(b.x, b.y);
-  ctx.rotate(-Math.PI / 4);
-  // 弹体
-  ctx.fillStyle = ready ? '#fff5d8' : '#b0a898';
-  ctx.beginPath();
-  ctx.moveTo(-22, -9);
-  ctx.lineTo(16, -7);
-  ctx.lineTo(24, 0);
-  ctx.lineTo(16, 7);
-  ctx.lineTo(-22, 9);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  // 弹头红
-  ctx.fillStyle = ready ? '#ff4030' : '#8a4838';
-  ctx.beginPath(); ctx.arc(18, 0, 6, 0, TAU); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // 尾翼
-  ctx.fillStyle = ready ? '#ffd080' : '#a09080';
-  ctx.beginPath();
-  ctx.moveTo(-22, -9); ctx.lineTo(-30, -14); ctx.lineTo(-22, 0);
-  ctx.lineTo(-30, 14); ctx.lineTo(-22, 9);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // 弹头红
-  ctx.fillStyle = ready ? '#ff4030' : '#8a4838';
-  ctx.beginPath(); ctx.arc(15, 0, 5, 0, TAU); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  // 尾翼
-  ctx.fillStyle = ready ? '#ffd080' : '#a09080';
-  ctx.beginPath();
-  ctx.moveTo(-18, -7); ctx.lineTo(-25, -12); ctx.lineTo(-18, 0);
-  ctx.lineTo(-25, 12); ctx.lineTo(-18, 7);
-  ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-
-  // 右上角数量角标
-  const nx = b.x + R * 0.7, ny = b.y - R * 0.7;
-  ctx.fillStyle = charges > 0 ? '#ff8a3c' : '#4a3828';
-  ctx.beginPath(); ctx.arc(nx, ny, 17, 0, TAU); ctx.fill();
-  ctx.strokeStyle = '#2a1808';
-  ctx.lineWidth = 3; ctx.stroke();
-  ctx.strokeStyle = '#ffd080';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(nx, ny, 17, 0, TAU); ctx.stroke();
-  drawUIText(String(charges), nx, ny + 1, 'body', { size: 24, strokeWidth: 5 });
-
-  // 底部文字
-  const label = '导弹 ' + charges + '/' + maxCharges;
-  ctx.save();
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(label).width;
-  rr(b.x - tw/2 - 9, b.y + R + 6, tw + 18, 26, 8);
-  ctx.fillStyle = 'rgba(0,0,0,0.78)';
-  ctx.fill();
-  ctx.strokeStyle = fullReady ? '#ffb860' : 'rgba(150,100,60,0.8)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.restore();
-  drawUIText(label, b.x, b.y + R + 24, fullReady ? 'accent' : 'muted', { size: 18 });
-
-  ctx.restore();
-}
-
-function drawLaserButton(){
-  const b = LASER_BTN;
-  const cdRatio = laserCooldown / LASER_COOLDOWN_MAX;
-  const ready = laserCooldown <= 0 && !laser.active;
-  const active = laser.active;
-  const mainColor = '#88eeff';
-  const R = b.r;
-  const pulse = 0.5 + Math.sin(gameTime * 8) * 0.5;
-
-  ctx.save();
-
-  if(active || ready){
-    const color = active ? '255,255,255' : '120,240,255';
-    ctx.strokeStyle = 'rgba(' + color + ',' + (0.6 - pulse * 0.35) + ')';
-    ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(b.x, b.y, R + 6 + pulse * 6, 0, TAU); ctx.stroke();
-  }
-
-  const bgGrd = ctx.createRadialGradient(b.x - R*0.35, b.y - R*0.35, R*0.1, b.x, b.y, R);
-  bgGrd.addColorStop(0, '#2a6a8a');
-  bgGrd.addColorStop(0.6, '#1a3e5a');
-  bgGrd.addColorStop(1, '#0e2438');
-  ctx.fillStyle = bgGrd;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.fill();
-
-  if(cdRatio > 0){
-    const startAngle = -Math.PI/2 + TAU * (1 - cdRatio);
-    const endAngle = -Math.PI/2 + TAU;
-    ctx.beginPath();
-    ctx.moveTo(b.x, b.y);
-    ctx.arc(b.x, b.y, R, startAngle, endAngle);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,0,0,0.68)';
-    ctx.fill();
-  }
-
-  if(active){
-    const remainP = Math.max(0, 1 - laser.timer / laser.duration);
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.arc(b.x, b.y, R + 2, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = '#88eeff';
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, R + 2, -Math.PI/2 + TAU * (1 - remainP), -Math.PI/2 + TAU);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = active ? '#ffffff' : (ready ? mainColor : 'rgba(110,150,180,0.6)');
-  ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, TAU); ctx.stroke();
-
-  const iconColor = ready ? '#ffffff' : '#c8d8e0';
-  ctx.save();
-  ctx.translate(b.x, b.y);
-  if(active) ctx.rotate(gameTime * 4);
-  ctx.fillStyle = iconColor;
-  ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fill();
-  for(let i = 0; i < 4; i++){
-    const a = i * TAU / 4;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * 11, Math.sin(a) * 11);
-    ctx.lineTo(Math.cos(a) * 22, Math.sin(a) * 22);
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = iconColor;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  if(!active){
-    const label = ready ? '就绪' : (laserCooldown.toFixed(1) + 's');
-    drawUIText(label, b.x, b.y + R + 22, ready ? 'accent' : 'muted', { size: 20 });
-  }
-
-  const label = '激光 (E)';
-  ctx.save();
-  ctx.font = 'bold 18px "Microsoft YaHei",sans-serif';
-  const tw = ctx.measureText(label).width;
-  rr(b.x - tw/2 - 9, b.y + R + 34, tw + 18, 26, 8);
-  ctx.fillStyle = 'rgba(0,0,0,0.72)';
-  ctx.fill();
-  ctx.restore();
-  drawUIText(label, b.x, b.y + R + 52, ready ? 'body' : 'muted', { size: 18 });
-
-  ctx.restore();
 }
 
 
@@ -7133,148 +6526,6 @@ function drawActiveItems(){
   // （保留原有布局逻辑，等有 items 再加回来）
 }
 
-function drawSkillTip(){
-  if(!skillTip.type) return;
-  if(!player) return;
-
-  const alpha = Math.min(1, (skillTip.fade || 0));
-  const lines = [];
-  let title = '';
-  let color = '#8ef0a8';
-
-  if(skillTip.type === 'can'){
-    title = '罐头投掷';
-    color = '#ffcf5c';
-    const cd = CAN_AUTO_INTERVAL;
-    const dmg = Math.round(player.canDamage);
-    const blastR = Math.round(player.blastRadius);
-    const canLv = player.buffLevels.canpower || 0;
-    const blastLv = player.buffLevels.blast || 0;
-    lines.push({ k: '冷却', v: cd.toFixed(1) + ' 秒' });
-    lines.push({ k: '触发', v: '自动向最近敌人投掷' });
-    lines.push({ k: '攻击范围', v: '爆炸半径 ' + blastR + ' 内所有敌人' });
-    lines.push({ k: '中心伤害', v: dmg + '' });
-    lines.push({ k: '边缘伤害', v: Math.round(dmg * 0.55) + '（外圈 55%）' });
-    if(canLv > 0) lines.push({ k: '罐头强化', v: 'Lv.' + canLv + '  伤害 +' + (canLv * 50) + '%', hl: true });
-    if(blastLv > 0) lines.push({ k: '巨型爆炸', v: 'Lv.' + blastLv + '  范围 +' + (blastLv * 35) + '%', hl: true });
-  } else if(skillTip.type === 'airstrike'){
-    title = '全屏轰炸';
-    color = '#ff8a3c';
-    const lv = player.airstrikeLevel || 0;
-    if(lv <= 0){
-      lines.push({ k: '状态', v: '未解锁（需选择对应强化）' });
-    } else {
-      const cd = player.airstrikeCD;
-      const count = player.airstrikeCount;
-      const dmg = Math.round(player.airstrikeDamage);
-      lines.push({ k: '冷却', v: cd.toFixed(1) + ' 秒' });
-      lines.push({ k: '触发', v: '自动空投炸弹' });
-      lines.push({ k: '攻击数量', v: count + ' 个敌人' });
-      lines.push({ k: '单发伤害', v: dmg + '' });
-      lines.push({ k: '边缘伤害', v: Math.round(dmg * 0.5) + '（外圈 50%）' });
-      lines.push({ k: '爆炸半径', v: '100' });
-      lines.push({ k: '当前等级', v: 'Lv.' + lv + '（每级 +1 炸弹 +30 伤害）', hl: true });
-    }
-  } else if(skillTip.type === 'laser'){
-    title = '激光';
-    color = '#88eeff';
-    const dur = laser.duration;
-    const powerLv = player.buffLevels.laserpower || 0;
-    const dps = Math.round(player.laserDamage * 0.35);
-    const totalDmg = Math.round(dps * dur);
-    lines.push({ k: '冷却', v: LASER_COOLDOWN_MAX + ' 秒' });
-    lines.push({ k: '持续时间', v: dur.toFixed(1) + ' 秒' });
-    lines.push({ k: '触发', v: '朝正上方发射 + 穿透 + 减速' });
-    lines.push({ k: '每秒伤害', v: dps + '' });
-    lines.push({ k: '预计总伤', v: '约 ' + totalDmg + ' / 每个目标' });
-    if(powerLv > 0) lines.push({ k: '激光强化', v: 'Lv.' + powerLv + '  伤害 +' + (powerLv * 45) + '%', hl: true });
-  } else if(skillTip.type === 'missile'){
-    title = '追踪导弹';
-    color = '#ff8a3c';
-    const count = player.missileCount;
-    const dmg = Math.round(player.missileDamage);
-    const maxC = player.missileChargeMax;
-    const ct = player.missileChargeTime;
-    const cCountLv = player.buffLevels.missile_count || 0;
-    const cDmgLv = player.buffLevels.missile_damage || 0;
-    const cChgLv = player.buffLevels.missile_charge || 0;
-    lines.push({ k: '充能', v: maxC + ' 层上限 · 每 ' + ct.toFixed(1) + ' 秒回 1 层' });
-    lines.push({ k: '触发', v: '自动追踪最高血量敌人' });
-    lines.push({ k: '发射数量', v: count + ' 枚' });
-    lines.push({ k: '单发伤害', v: dmg + '' });
-    lines.push({ k: '全中合计', v: '约 ' + (dmg * count) + ' 伤害' });
-    if(cCountLv > 0) lines.push({ k: '导弹齐射', v: 'Lv.' + cCountLv + '  数量 +' + cCountLv + ' 枚', hl: true });
-    if(cDmgLv > 0) lines.push({ k: '导弹弹头', v: 'Lv.' + cDmgLv + '  伤害 +' + (cDmgLv * 45) + '%', hl: true });
-    if(cChgLv > 0) lines.push({ k: '快速装填', v: 'Lv.' + cChgLv + '  充能 -' + Math.round(cChgLv * 28) + '%', hl: true });
-  }
-
-  const panelW = 440;
-  const paddingX = 26;
-  const lineH = 32;
-  const titleH = 54;
-  const panelH = 16 + titleH + lines.length * lineH + 26;
-  const px = (W - panelW) / 2;
-  const py = H / 2 - panelH / 2;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-
-  rr(px, py, panelW, panelH, 14);
-  const grd = ctx.createLinearGradient(px, py, px, py + panelH);
-  grd.addColorStop(0, 'rgba(20,32,26,0.97)');
-  grd.addColorStop(1, 'rgba(10,16,12,0.97)');
-  ctx.fillStyle = grd;
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  rr(px, py, panelW, panelH, 14);
-  ctx.stroke();
-
-  // 标题底
-  ctx.globalAlpha = alpha * 0.22;
-  ctx.fillStyle = color;
-  rr(px, py, panelW, titleH, 14);
-  ctx.fill();
-  ctx.globalAlpha = alpha;
-
-  // 标题
-  ctx.textAlign = 'left';
-  ctx.font = 'bold 27px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = color;
-  ctx.fillText(title, px + paddingX, py + 38);
-
-  // 分隔线
-  ctx.strokeStyle = 'rgba(140,220,180,0.3)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(px + paddingX, py + titleH);
-  ctx.lineTo(px + panelW - paddingX, py + titleH);
-  ctx.stroke();
-
-  // 内容
-  let cy = py + titleH + 14;
-  const keyW = 118;
-  for(const ln of lines){
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 17px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = ln.hl ? color : 'rgba(180,210,195,0.9)';
-    ctx.fillText(ln.k, px + paddingX, cy + 20);
-
-    ctx.font = '17px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = ln.hl ? '#ffe080' : '#dfe9e3';
-    ctx.fillText(ln.v, px + paddingX + keyW, cy + 20);
-
-    cy += lineH;
-  }
-
-  // 关闭提示
-  ctx.textAlign = 'center';
-  ctx.font = '14px "Microsoft YaHei",sans-serif';
-  ctx.fillStyle = 'rgba(160,185,175,0.7)';
-  ctx.fillText('点击任意位置关闭', px + panelW / 2, py + panelH - 10);
-
-  ctx.restore();
-}
 
 // ================= 爱心血条 =================
 function heartPath(cx, cy, r){
@@ -7505,17 +6756,14 @@ function drawHUD(){
   const line2Y = infoY + 72;
   const line3Y = infoY + 102;
 
-  const isTutorial = (currentStage === 1);
   const isStageMode = (currentStage >= 1);
 
   let line1Text, line2Text, line3Text;
 
   if(isStageMode){
-    // ===== 闯关模式（含教学关） =====
+    // ===== 闯关模式 =====
     line1Text = '第 ' + currentStage + ' 关';
-
-    const totalWaves = isTutorial ? STAGE_WAVES : 3;
-    line2Text = Math.max(1, waveInStage) + ' / ' + totalWaves + ' 波';
+    line2Text = Math.max(1, waveInStage) + ' / 4 波';
 
     const remainTotal = Math.max(0, stageTotalEnemies - stageKillCount);
     line3Text = '剩余 ' + remainTotal;
@@ -7539,11 +6787,7 @@ function drawHUD(){
   drawActiveItems();
   drawSkillIcons();
   drawJoystick(moveJoy, MOVE_BASE, '#7fe0a0', '移动');
-  if(unlockedWeapons.missile && catBroTakenSkills.indexOf('missile') < 0) drawMissileButton();
-  if(unlockedWeapons.laser && catBroTakenSkills.indexOf('laser') < 0)   drawLaserButton();
-  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0)       drawOrbButton();
   drawPauseButton();
-  if(isAllWeaponsUnlocked()) drawAutoCastBtn();
   drawHelpQuickBtn();
 
   if(banner){
@@ -8338,7 +7582,7 @@ function drawStarRow(cx, cy, filled){
 function drawStageCard(x, y, w, h, num, stars, unlocked){
   const isCurrent = (unlocked && stars === 0 && num === stageProgress.unlockedMax);
   const isDone = stars > 0;
-  const RADIUS = 22;   // ★ 卡片圆角
+  const RADIUS = 22;
 
   rr(x, y, w, h, RADIUS);
   const grd = ctx.createLinearGradient(x, y, x, y + h);
@@ -8367,11 +7611,27 @@ function drawStageCard(x, y, w, h, num, stars, unlocked){
 
   const cx = x + w / 2;
 
-  // 统一文本样式和位置
-  drawUIText('第 ' + num + ' 关', cx, y + 46, 'body', { size: 26, strokeWidth: 4 });
+  // 关卡号
+  drawUIText('第 ' + num + ' 关', cx, y + 42, 'body', { size: 24, strokeWidth: 4 });
 
-  // 星星：两种状态都显示
-  drawStarRow(cx, y + h - 32, unlocked ? stars : 0);
+  // 通关解锁提示
+  const unlockKey = STAGE_WEAPON_UNLOCK[num];
+  if(unlockKey){
+    const isUnlocked = savedWeaponUnlock[unlockKey];
+    const wname = WEAPON_UNLOCK_NAMES[unlockKey] || unlockKey;
+
+    if(isUnlocked){
+      drawUIText('✓ ' + wname + ' 已获取', cx, y + 78, 'success', {
+        size: 13, strokeWidth: 3
+      });
+    } else {
+      drawUIText('通关解锁 ' + wname, cx, y + 78, 'accent', {
+        size: 13, strokeWidth: 3
+      });
+    }
+  }
+  // 星星
+  drawStarRow(cx, y + h - 30, unlocked ? stars : 0);
 }
 
 function drawStageSelectScreen(){
@@ -8399,7 +7659,7 @@ function drawStageSelectScreen(){
 
   // ★ 卡片宽度自适应弹窗宽度，上限 148（原始尺寸）
   const cellW = Math.min(158, Math.floor((gridW - gapX * (colCount - 1)) / colCount));
-  const cellH = 142;
+  const cellH = 160;
 
   const totalGridW = cellW * colCount + gapX * (colCount - 1);
   const startX = gridX + (gridW - totalGridW) / 2;
@@ -9128,7 +8388,6 @@ function returnToMenu(){
   state = 'menu';
   menuInit();
   stopBGM();
-  skillTip = { type: null, fade: 0 };
   waveCapDisabled = false;
   // 清空世界，防止残留
   enemies = []; bullets = []; eBullets = []; cans = [];
@@ -10723,9 +9982,6 @@ function render(){
   // 低血量警告（叠在 HUD 之上）
   drawLowHpWarning();
 
-  // 技能 tips 显示在最上层
-  drawSkillTip();
-
   // 音频调试面板（按 F2 / ` 切换）
   drawAudioDebug();
 }
@@ -10745,6 +10001,7 @@ function loop(now){
 loadStageProgress();
 loadLeaderboard();
 loadCatPref();
+loadWeaponUnlock();
 loadCurrency();
 gameTime = 0;
 state = 'menu';
