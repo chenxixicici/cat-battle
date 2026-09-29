@@ -42,6 +42,7 @@
         { key: 'icon_coin',    src: 'images/ui/icon_coin.png' },
         { key: 'icon_diamond', src: 'images/ui/icon_diamond.png' },
         { key: 'icon_star',    src: 'images/ui/icon_star.png' },
+        { key: 'icon_star_empty', src: 'images/ui/icon_star_empty.png' },
         { key: 'icon_skill_laser', src: 'images/ui/icon_skill_laser.png' },
         { key: 'bar_track',      src: 'images/ui/bar_track.png' },
         { key: 'bar_fill_green', src: 'images/ui/bar_fill_green.png' },
