@@ -5,6 +5,7 @@ const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const W = cv.width, H = cv.height;
 const TAU = Math.PI * 2;
+const CAT_BATTLE_VERSION = 'cat_battle_1.14';
 const WORLD = { w: 720, h: 1280 };
 
 // 防御性包裹 arc：半径非正时修正，避免负数/NaN 崩溃
@@ -89,60 +90,67 @@ let stageProgress = {
   stars: {}                          // { 关卡号: 星数 0~3 }
 };
 
-// ================= 技能树 =================
-const SKILL_TREE_KEY = 'cat_battle_skill_tree_v1';
+// ================= 永久技能树 v2 =================
+// 1.04：技能树不再负责解锁武器，也不再提供武器专属永久强化。
+// 三条永久成长线：攻击 / 灵活 / 生存。
+const SKILL_TREE_KEY = 'cat_battle_skill_tree_v2';
+const SKILL_POINTS_KEY = 'cat_battle_skill_points_v2';
+const SKILL_MIGRATION_KEY = 'cat_battle_skill_tree_v2_migrated';
 
 const SKILL_BRANCHES = [
-  { key:'bullet',  name:'猫粮', color:'#ffe080' },
-  { key:'laser',   name:'激光', color:'#88eeff' },
-  { key:'missile', name:'导弹', color:'#ff8a3c' },
-  { key:'can',     name:'罐头', color:'#ff9f6b' },
-  { key:'gen',     name:'通用', color:'#7fe0a0' }
+  { key:'offense', name:'攻击', color:'#ffd24a' },
+  { key:'agility', name:'灵活', color:'#7fd8ff' },
+  { key:'survival', name:'生存', color:'#7fe0a0' }
 ];
 
+// 星级负责“资格”，技能点负责“购买”。
+// 18 个节点：3 / 6 / 9 / 12 / 15 / 18 星逐层开放。
 const SKILL_TREE = [
-  // 猫粮线（10 星）
-  { id:'bullet_dmg1',  branch:'bullet', tier:1, cost:2, label:'+15%',  desc:'猫粮伤害 +15%' },
-  { id:'bullet_rate1', branch:'bullet', tier:2, cost:2, label:'+11%',  desc:'猫粮射速 +11%' },
-  { id:'bullet_dmg2',  branch:'bullet', tier:3, cost:3, label:'+20%',  desc:'猫粮伤害 +20%' },
-  { id:'bullet_multi', branch:'bullet', tier:4, cost:3, label:'+1弹',  desc:'猫粮 +1 弹道' },
+  // 攻击：稳定提升三种主武器的共同基础能力，不碰武器机制。
+  { id:'offense_damage1', branch:'offense', tier:1, reqStars:3,  cost:1, label:'+3%',  desc:'主角造成的伤害 +3%' },
+  { id:'offense_rate1',   branch:'offense', tier:2, reqStars:6,  cost:1, label:'+3%',  desc:'主角攻击间隔缩短 3%' },
+  { id:'offense_crit1',   branch:'offense', tier:3, reqStars:9,  cost:2, label:'+2%',  desc:'暴击率 +2%' },
+  { id:'offense_damage2', branch:'offense', tier:4, reqStars:12, cost:2, label:'+5%',  desc:'主角造成的伤害额外 +5%' },
+  { id:'offense_crit2',   branch:'offense', tier:5, reqStars:15, cost:2, label:'+10%', desc:'暴击伤害 +10%' },
+  { id:'offense_core',    branch:'offense', tier:6, reqStars:18, cost:3, label:'+6%',  desc:'核心：主角造成的伤害额外 +6%' },
 
-  // 激光线（9 星：解锁免费 + 8 星）
-  { id:'laser_unlock', branch:'laser', tier:1, cost:0, reqStage:2, label:'解锁',  desc:'解锁激光（通关第 2 关）' },
-  { id:'laser_dmg1',   branch:'laser', tier:2, cost:2, label:'+15%',  desc:'激光伤害 +15%' },
-  { id:'laser_cd1',    branch:'laser', tier:3, cost:2, label:'-15%',  desc:'激光冷却 -15%' },
-  { id:'laser_width1', branch:'laser', tier:4, cost:2, label:'+25%',  desc:'激光宽度 +25%' },
-  { id:'laser_dur1',   branch:'laser', tier:5, cost:3, label:'+0.3s', desc:'激光挥砍时长 +0.3s' },
+  // 灵活：强化走位和战斗覆盖，不直接增加武器倍率。
+  { id:'agility_speed1',  branch:'agility', tier:1, reqStars:3,  cost:1, label:'+4%',  desc:'移动速度 +4%' },
+  { id:'agility_range1',  branch:'agility', tier:2, reqStars:6,  cost:1, label:'+8%',  desc:'主武器有效射程 +8%' },
+  { id:'agility_speed2',  branch:'agility', tier:3, reqStars:9,  cost:2, label:'+5%',  desc:'移动速度额外 +5%' },
+  { id:'agility_range2',  branch:'agility', tier:4, reqStars:12, cost:2, label:'+8%',  desc:'主武器有效射程额外 +8%' },
+  { id:'agility_rate',    branch:'agility', tier:5, reqStars:15, cost:2, label:'+3%',  desc:'所有主武器攻击间隔额外缩短 3%' },
+  { id:'agility_core',    branch:'agility', tier:6, reqStars:18, cost:3, label:'+5%',  desc:'核心：移动速度额外 +5%' },
 
-  // 导弹线（9 星）
-  { id:'missile_unlock', branch:'missile', tier:1, cost:0, reqStage:4, label:'解锁',  desc:'解锁导弹（通关第 4 关）' },
-  { id:'missile_dmg1',   branch:'missile', tier:2, cost:2, label:'+15%',  desc:'导弹伤害 +15%' },
-  { id:'missile_count1', branch:'missile', tier:3, cost:3, label:'+1',    desc:'导弹数量 +1' },
-  { id:'missile_cd1',    branch:'missile', tier:4, cost:2, label:'-20%',  desc:'导弹冷却 -20%' },
-  { id:'missile_speed1', branch:'missile', tier:5, cost:2, label:'+30%',  desc:'导弹追踪速度 +30%' },
-
-  // 罐头线（9 星）
-  { id:'can_unlock', branch:'can', tier:1, cost:0, reqStage:6, label:'解锁',  desc:'解锁罐头（通关第 6 关）' },
-  { id:'can_dmg1',   branch:'can', tier:2, cost:2, label:'+20%',  desc:'罐头伤害 +20%' },
-  { id:'can_blast1', branch:'can', tier:3, cost:2, label:'+20%',  desc:'爆炸范围 +20%' },
-  { id:'can_cd1',    branch:'can', tier:4, cost:2, label:'-15%',  desc:'罐头冷却 -15%' },
-  { id:'can_blast2', branch:'can', tier:5, cost:3, label:'+30%',  desc:'爆炸范围 +30%' },
-
-  // 通用线（10 星）
-  { id:'gen_speed', branch:'gen', tier:1, cost:2, label:'+8%',  desc:'移动速度 +8%' },
-  { id:'gen_hp',    branch:'gen', tier:2, cost:3, label:'+1心', desc:'最大生命 +1 心' },
-  { id:'gen_crit',  branch:'gen', tier:3, cost:2, label:'+5%',  desc:'暴击率 +5%' },
-  { id:'gen_buff',  branch:'gen', tier:4, cost:3, label:'幸运', desc:'每关开局随机 1 个 buff' }
+  // 生存：主角活得更久，并给城墙一个轻量长期成长。
+  { id:'survival_hp1',    branch:'survival', tier:1, reqStars:3,  cost:1, label:'+6',   desc:'最大生命 +6' },
+  { id:'survival_wall1',  branch:'survival', tier:2, reqStars:6,  cost:1, label:'-5%',  desc:'城墙受到伤害 -5%' },
+  { id:'survival_hp2',    branch:'survival', tier:3, reqStars:9,  cost:2, label:'+8',   desc:'最大生命额外 +8' },
+  { id:'survival_guard',  branch:'survival', tier:4, reqStars:12, cost:2, label:'-5%',  desc:'主角受到伤害 -5%' },
+  { id:'survival_wall2',  branch:'survival', tier:5, reqStars:15, cost:2, label:'-5%',  desc:'城墙受到伤害额外 -5%' },
+  { id:'survival_core',   branch:'survival', tier:6, reqStars:18, cost:3, label:'+10',  desc:'核心：最大生命额外 +10' }
 ];
 
-let skillTree       = {};              // { nodeId: true }
-let skillTreeFrom   = 'catselect';     // 'catselect' | 'stageVictory'
+let skillTree       = {};
+let skillPoints     = 0;
+let skillTreeFrom   = 'catselect';
 let skillNodeRects  = [];
 let skillBackBtn    = null;
 let skillResetBtn   = null;
+let skillScrollY = 0;
+let skillScrollMaxY = 0;
+let skillScroll = {dragging:false,startY:0,startScrollY:0,startX:0,moved:false};
+let skillDetailNode = null;
+let skillDetailCloseRect = null;
+let skillDetailLearnRect = null;
+let taskRects       = [];
+let taskBackBtn     = null;
+let taskSkillTreeEntryRect = null;
+let taskScrollY     = 0;
 
-// 选猫界面的技能树入口按钮
-const CATCHOOSE_SKILL_BTN = { x: 620, y: 880, w: 90, h: 90 };
+const CATCHOOSE_BRO_BTN   = { x: 92,  y: 885, w: 104, h: 78 };
+const CATCHOOSE_TASK_BTN  = { x: 224, y: 885, w: 104, h: 78 };
+const CATCHOOSE_SKILL_BTN = { x: 356, y: 885, w: 104, h: 78 };
 
 let stageScrollY = 0;
 let stageScrollMaxY = 0;
@@ -171,6 +179,60 @@ let menuTapCount = 0;      // 隐藏操作：连点计数
 let menuTapLast = 0;       // 上次点击时间
 let menuToast = { text: '', life: 0 };  // 隐藏操作反馈文字
 function menuInit(){ menuTime = 0; menuEnterT = 0; menuToast.life = 0; menuTapCount = 0; }
+const MAIN_NAV = [
+  {id:'stages', label:'闯关'}, {id:'tasks', label:'任务'}, {id:'home', label:'家园'},
+  {id:'inventory', label:'背包'}, {id:'shop', label:'商城'}
+];
+let mainNavRects = [];
+let mainResetConfirm = false;
+let placeholderFrom = 'inventory';
+let mainResetConfirmRects = [];
+let mainResetBtnRect = null;
+let menuStartBtnRect = null;
+let currentPrepStage = 1;
+let prepWeaponRects = [];
+let prepCatRects = [];
+let prepStartRect = null;
+let stagePrepResetBtnRect = null;
+let homeCatRects = [];
+let bootStartBtnRect = null;
+function hitRect(r,p){ return r && p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h; }
+function clearAllGameData(){
+  try{
+    const keys=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k && (k.indexOf('cat_battle')===0 || k.indexOf('catBattle')===0)) keys.push(k);
+    }
+    keys.forEach(k=>localStorage.removeItem(k));
+    // 同时处理旧版本可能使用的 sessionStorage 临时记录。
+    const sessionKeys=[];
+    for(let i=0;i<sessionStorage.length;i++){
+      const k=sessionStorage.key(i);
+      if(k && (k.indexOf('cat_battle')===0 || k.indexOf('catBattle')===0)) sessionKeys.push(k);
+    }
+    sessionKeys.forEach(k=>sessionStorage.removeItem(k));
+  }catch(e){}
+
+  // 不再“清除后立刻写回默认存档”。直接刷新页面，让所有内存状态也回到代码默认值。
+  menuTapCount=0;
+  menuToast={text:'已清除全部数据，从头开始游戏',life:3};
+  try{
+    location.reload();
+  }catch(e){
+    // 极端环境无法 reload 时仍回到全新内存状态。
+    stageProgress={unlockedMax:1,stars:{}};
+    skillTree={}; skillPoints=0; taskState={claimed:{}};
+    taskStats={totalKills:0,zombieKills:0,wavesCleared:0};
+    catBroCollection={}; catBroDeploy=[]; lastCatBroReward=null;
+    currency={coins:500,diamonds:0};
+    savedWeaponUnlock={laser:false,missile:false,can:false,orb:false,airstrike:false};
+    unlockedWeapons={catfood:true,laser:true,missile:true,can:false,orb:false,airstrike:false};
+    currentWeapon='catfood'; currentStageNum=1; currentPrepStage=1; gameMode='stage';
+    state='boot'; menuInit(); last=performance.now();
+  }
+}
+
 
 // ================= 猫选择 =================
 const CAT_OPTIONS = [
@@ -178,15 +240,79 @@ const CAT_OPTIONS = [
   { key: 'hart', spriteKey: 'cat_hart', defaultName: '哈特咩' }
 ];
 const CAT_PREF_KEY = 'cat_battle_cat_pref_v1';
+
+// ================= 猫小弟永久收藏 v1.06 =================
+const CATBRO_COLLECTION_KEY = 'cat_battle_catbro_collection_v1';
+const CATBRO_DEPLOY_KEY = 'cat_battle_catbro_deploy_v1';
+const CATBRO_COLLECTION = [
+  {id:'orange',  name:'橘猫',   rate:1.35, dmg:7,  skill:'稳定射击', desc:'攻击稳定，基础伤害较低'},
+  {id:'black',   name:'黑猫',   rate:2.10, dmg:25, skill:'重击',     desc:'攻击慢，但单发伤害高'},
+  {id:'calico',  name:'三花',   rate:1.80, dmg:8,  skill:'三连射',   desc:'每次攻击连续发射3发'},
+  {id:'cow',     name:'奶牛猫', rate:1.80, dmg:11, skill:'穿透',     desc:'子弹可穿透3个敌人'},
+  {id:'ragdoll', name:'布偶猫', rate:1.90, dmg:10, skill:'减速',     desc:'命中后使敌人减速'},
+  {id:'tuxedo',  name:'黑白猫', rate:2.00, dmg:10, skill:'爆炸',     desc:'命中造成54范围伤害'},
+  {id:'tabby',   name:'狸花猫', rate:1.70, dmg:9,  skill:'连发',     desc:'每次攻击连续发射3发'},
+  {id:'golden',  name:'金渐层', rate:1.85, dmg:11, skill:'追踪',     desc:'子弹会轻微追踪目标'},
+  {id:'white',   name:'纯白猫', rate:2.35, dmg:30, skill:'远射',     desc:'超长射程，单发伤害高'},
+  {id:'siamese', name:'暹罗猫', rate:1.95, dmg:11, skill:'双发',     desc:'每次攻击同时发射2发'}
+];
+let catBroCollection = {};
+let catBroDeploy = [];
+let catBroCollectionRects = [];
+let catBroCollectionBackRect = null;
+let catBroCollectionStartRect = null;
+let catBroSelectedId = null;
+let lastCatBroReward = null;
+
+function loadCatBroCollection(){
+  try{
+    const raw = localStorage.getItem(CATBRO_COLLECTION_KEY);
+    if(raw){ const d=JSON.parse(raw); if(d && typeof d==='object') catBroCollection=d; }
+    const dr = localStorage.getItem(CATBRO_DEPLOY_KEY);
+    if(dr){ const d=JSON.parse(dr); if(Array.isArray(d)) catBroDeploy=d.filter(id=>CATBRO_COLLECTION.some(c=>c.id===id)).slice(0,3); }
+  }catch(e){}
+}
+function saveCatBroCollection(){
+  try{
+    localStorage.setItem(CATBRO_COLLECTION_KEY, JSON.stringify(catBroCollection));
+    localStorage.setItem(CATBRO_DEPLOY_KEY, JSON.stringify(catBroDeploy));
+  }catch(e){}
+}
+function isCatBroOwned(id){ return catBroCollection[id] === true; }
+function getOwnedCatBroCount(){ return CATBRO_COLLECTION.filter(c=>isCatBroOwned(c.id)).length; }
+function unlockRandomCatBroForStage(stageNum){
+  // 每个关卡首次通关只给一次猫小弟；重复提高星级不会重复发放。
+  const key='stage_'+stageNum;
+  if(catBroCollection._stages && catBroCollection._stages[key]) return null;
+  if(!catBroCollection._stages) catBroCollection._stages={};
+  catBroCollection._stages[key]=true;
+  const pool=CATBRO_COLLECTION.filter(c=>!catBroCollection[c.id]);
+  if(!pool.length){ saveCatBroCollection(); return null; }
+  const got=pool[Math.floor(Math.random()*pool.length)];
+  catBroCollection[got.id]=true;
+  saveCatBroCollection();
+  return got;
+}
+function toggleCatBroDeploy(id){
+  if(!isCatBroOwned(id)) return false;
+  const i=catBroDeploy.indexOf(id);
+  if(i>=0){ catBroDeploy.splice(i,1); saveCatBroCollection(); return true; }
+  if(catBroDeploy.length>=3) return false;
+  catBroDeploy.push(id); saveCatBroCollection(); return true;
+}
+function getDeployedCatBros(){
+  return catBroDeploy.map(id=>CATBRO_COLLECTION.find(c=>c.id===id)).filter(Boolean);
+}
+
 let catType = 'mimi';
 let catNames = { mimi: '米米', hart: '哈特咩' };
 let editingCatKey = null;
 let nameInput = null;
 
 // 猫选择界面按钮
-const CATCHOOSE_STAGE_BTN   = { x: W/2, y: 880,  w: 400, h: 96 };   // 开始闯关
-const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 1000, w: 400, h: 96 };   // 无尽模式
-const CATCHOOSE_BACK_BTN    = { x: W/2, y: 1120, w: 400, h: 96 };
+const CATCHOOSE_STAGE_BTN   = { x: W/2, y: 1010, w: 400, h: 86 };   // 开始闯关
+const CATCHOOSE_ENDLESS_BTN = { x: W/2, y: 1110, w: 400, h: 76 };   // 无尽模式
+const CATCHOOSE_BACK_BTN    = { x: W/2, y: 1200, w: 300, h: 60 };
 // 两张猫卡片的矩形（用于点击检测）
 const CAT_CARD_RECTS = [
   { x: 60,  y: 400, w: 280, h: 400, key: 'mimi' },
@@ -686,8 +812,7 @@ function syncBGM(){
     state === 'help' || (state === 'leaderboard' && lbFrom === 'menu');
   const isGameLike =
     state === 'playing' || state === 'paused' ||
-    state === 'confirm' || state === 'buff' || state === 'victory' ||
-    state === 'catbro';
+    state === 'confirm' || state === 'buff' || state === 'victory';
 
   if(isMenuLike){
     if(!menuBgm.intervalId) startMenuBGM();
@@ -736,29 +861,56 @@ function saveStageProgress(){
 function loadSkillTree(){
   try{
     const raw = localStorage.getItem(SKILL_TREE_KEY);
-    if(!raw) return;
-    const d = JSON.parse(raw);
-    if(!d || typeof d !== 'object') return;
-    for(const k in d){
-      if(d[k] === true) skillTree[k] = true;
+    if(raw){
+      const d = JSON.parse(raw);
+      if(d && typeof d === 'object'){
+        if(d.nodes && typeof d.nodes === 'object') skillTree = d.nodes;
+        if(Number.isFinite(d.points)) skillPoints = Math.max(0, Math.floor(d.points));
+      }
+    }
+
+    // 从 1.03 旧技能树一次性迁移：旧树已经花掉的星 + 尚未花掉的星 = 当前累计星数。
+    // 这样不会让玩家因为换树而丢失既有进度；1.04 起星星只负责门槛，技能点负责消费。
+    if(localStorage.getItem(SKILL_MIGRATION_KEY) !== '1'){
+      let oldSpent = 0;
+      try{
+        const oldRaw = localStorage.getItem('cat_battle_skill_tree_v1');
+        if(oldRaw){
+          const old = JSON.parse(oldRaw);
+          if(old && typeof old === 'object'){
+            const oldNodes = [
+              ['bullet_dmg1',2],['bullet_rate1',2],['bullet_dmg2',3],['bullet_multi',3],
+              ['laser_dmg1',2],['laser_cd1',2],['laser_width1',2],['laser_dur1',3],
+              ['missile_dmg1',2],['missile_count1',3],['missile_cd1',2],['missile_speed1',2],
+              ['can_dmg1',2],['can_blast1',2],['can_cd1',2],['can_blast2',3],
+              ['gen_speed',2],['gen_hp',3],['gen_crit',2],['gen_buff',3]
+            ];
+            for(const [id,cost] of oldNodes) if(old[id] === true) oldSpent += cost;
+          }
+        }
+      }catch(e){}
+      const earned = getTotalEarnedStars();
+      skillPoints = Math.max(skillPoints, earned);
+      // 旧树免费解锁节点不算技能点消费；实际付费节点全部已经包含在累计星中。
+      if(oldSpent > 0) skillPoints = Math.max(skillPoints, earned);
+      localStorage.setItem(SKILL_MIGRATION_KEY, '1');
+      saveSkillTree();
     }
   }catch(e){}
 }
 function saveSkillTree(){
   try{
-    localStorage.setItem(SKILL_TREE_KEY, JSON.stringify(skillTree));
+    localStorage.setItem(SKILL_TREE_KEY, JSON.stringify({nodes:skillTree, points:skillPoints}));
+    localStorage.setItem(SKILL_POINTS_KEY, String(skillPoints));
   }catch(e){}
 }
 
-// ================= 技能树星级计算 =================
 function getTotalEarnedStars(){
   let total = 0;
-  for(const k in stageProgress.stars){
-    total += stageProgress.stars[k] || 0;
-  }
+  for(const k in stageProgress.stars) total += stageProgress.stars[k] || 0;
   return total;
 }
-function getSpentStars(){
+function getSpentSkillPoints(){
   let total = 0;
   for(const id in skillTree){
     if(!skillTree[id]) continue;
@@ -767,44 +919,30 @@ function getSpentStars(){
   }
   return total;
 }
-function getAvailableStars(){
-  return getTotalEarnedStars() - getSpentStars();
+function getAvailableSkillPoints(){
+  return Math.max(0, skillPoints - getSpentSkillPoints());
 }
 function canUnlockSkill(node){
   if(skillTree[node.id]) return false;
-
-  // 通关门槛
-  if(node.reqStage && stageProgress.unlockedMax <= node.reqStage - 1){
-    return false;
-  }
-
-  // 前置节点
+  if(getTotalEarnedStars() < node.reqStars) return false;
   if(node.tier > 1){
     const prev = SKILL_TREE.find(n => n.branch === node.branch && n.tier === node.tier - 1);
     if(prev && !skillTree[prev.id]) return false;
   }
-
-  return getAvailableStars() >= node.cost;
+  return getAvailableSkillPoints() >= node.cost;
 }
-
-// 判断某节点为什么不能点（用于 UI 提示）
 function getSkillLockReason(node){
   if(skillTree[node.id]) return 'owned';
-  if(node.reqStage && stageProgress.unlockedMax <= node.reqStage - 1) return 'stage';
+  if(getTotalEarnedStars() < node.reqStars) return 'stars';
   if(node.tier > 1){
     const prev = SKILL_TREE.find(n => n.branch === node.branch && n.tier === node.tier - 1);
     if(prev && !skillTree[prev.id]) return 'prev';
   }
-  if(getAvailableStars() < node.cost) return 'star';
+  if(getAvailableSkillPoints() < node.cost) return 'points';
   return 'ok';
 }
-
-// 是否有任何节点可点（用于红点）
 function hasAvailableSkill(){
-  for(const node of SKILL_TREE){
-    if(getSkillLockReason(node) === 'ok') return true;
-  }
-  return false;
+  return SKILL_TREE.some(n => getSkillLockReason(n) === 'ok');
 }
 function unlockSkill(node){
   if(!canUnlockSkill(node)) return false;
@@ -814,57 +952,145 @@ function unlockSkill(node){
   return true;
 }
 function resetSkillTree(){
+  const refund = getSpentSkillPoints();
   skillTree = {};
+  skillPoints = Math.max(skillPoints, refund);
   saveSkillTree();
   recalcPlayerStats();
 }
 
-// ================= 技能加成计算 =================
+// ================= 永久技能加成计算 =================
 function getSkillBonus(){
   const b = {
-    bulletDmgMult: 1, bulletRateMult: 1, bulletExtraShots: 0,
-    laserUnlock: false, laserDmgMult: 1, laserCdMult: 1, laserWidthBonus: 0, laserDurBonus: 0,
-    missileUnlock: false, missileDmgMult: 1, missileExtraCount: 0, missileCdMult: 1, missileSpeedMult: 1,
-    canUnlock: false, canDmgMult: 1, canBlastMult: 1,
-    speedMult: 1, hpBonus: 0, critBonus: 0, startBuff: false
+    damageMult: 1,
+    fireRateMult: 1,
+    critBonus: 0,
+    critMultBonus: 0,
+    speedMult: 1,
+    rangeMult: 1,
+    hpBonus: 0,
+    playerDamageTakenMult: 1,
+    wallDamageTakenMult: 1
   };
-  if(skillTree.bullet_dmg1)   b.bulletDmgMult += 0.15;
-  if(skillTree.bullet_rate1)  b.bulletRateMult *= 0.90;
-  if(skillTree.bullet_dmg2)   b.bulletDmgMult += 0.20;
-  if(skillTree.bullet_multi)  b.bulletExtraShots += 1;
 
-  if(skillTree.laser_unlock)  b.laserUnlock = true;
-  if(skillTree.laser_dmg1)    b.laserDmgMult += 0.15;
-  if(skillTree.laser_cd1)     b.laserCdMult *= 0.85;
-  if(skillTree.laser_width1)  b.laserWidthBonus += 0.25;
-  if(skillTree.laser_dur1)    b.laserDurBonus += 0.3;
+  if(skillTree.offense_damage1) b.damageMult += 0.03;
+  if(skillTree.offense_rate1)   b.fireRateMult *= 0.97;
+  if(skillTree.offense_crit1)   b.critBonus += 0.02;
+  if(skillTree.offense_damage2) b.damageMult += 0.05;
+  if(skillTree.offense_crit2)   b.critMultBonus += 0.10;
+  if(skillTree.offense_core)    b.damageMult += 0.06;
 
-  if(skillTree.missile_unlock) b.missileUnlock = true;
-  if(skillTree.missile_dmg1)   b.missileDmgMult += 0.15;
-  if(skillTree.missile_count1) b.missileExtraCount += 1;
-  if(skillTree.missile_cd1)    b.missileCdMult *= 0.80;
-  if(skillTree.missile_speed1) b.missileSpeedMult += 0.30;
+  if(skillTree.agility_speed1) b.speedMult += 0.04;
+  if(skillTree.agility_range1) b.rangeMult += 0.08;
+  if(skillTree.agility_speed2) b.speedMult += 0.05;
+  if(skillTree.agility_range2) b.rangeMult += 0.08;
+  if(skillTree.agility_rate)   b.fireRateMult *= 0.97;
+  if(skillTree.agility_core)   b.speedMult += 0.05;
 
-  if(skillTree.can_unlock) b.canUnlock = true;
-  if(skillTree.can_dmg1)   b.canDmgMult += 0.20;
-  if(skillTree.can_blast1) b.canBlastMult += 0.20;
-  if(skillTree.can_blast2) b.canBlastMult += 0.30;
-
-  if(skillTree.gen_speed)  b.speedMult += 0.08;
-  if(skillTree.gen_hp)     b.hpBonus += 1;
-  if(skillTree.gen_crit)   b.critBonus += 0.05;
-  if(skillTree.gen_buff)   b.startBuff = true;
+  if(skillTree.survival_hp1)   b.hpBonus += 6;
+  if(skillTree.survival_wall1) b.wallDamageTakenMult *= 0.95;
+  if(skillTree.survival_hp2)   b.hpBonus += 8;
+  if(skillTree.survival_guard) b.playerDamageTakenMult *= 0.95;
+  if(skillTree.survival_wall2) b.wallDamageTakenMult *= 0.95;
+  if(skillTree.survival_core)  b.hpBonus += 10;
 
   return b;
 }
 
+// ================= 任务系统 v1（1.05） =================
+// 任务只负责“获得技能点”；星级仍只负责技能树解锁资格。
+const TASK_STATE_KEY = 'cat_battle_tasks_v1';
+const TASK_STATS_KEY = 'cat_battle_task_stats_v1';
+const TASKS = [
+  { id:'clear_stage_2', title:'首次突破', desc:'通关第 2 关', type:'stage', target:2, reward:2 },
+  { id:'clear_stage_5', title:'深入战线', desc:'通关第 5 关', type:'stage', target:5, reward:3 },
+  { id:'clear_stage_8', title:'守城精英', desc:'通关第 8 关', type:'stage', target:8, reward:4 },
+  { id:'kill_100', title:'清理战场', desc:'累计消灭 100 个敌人', type:'kills', target:100, reward:2 },
+  { id:'kill_300', title:'火力全开', desc:'累计消灭 300 个敌人', type:'kills', target:300, reward:3 },
+  { id:'kill_600', title:'战场老兵', desc:'累计消灭 600 个敌人', type:'kills', target:600, reward:4 },
+  { id:'clear_3', title:'连续推进', desc:'累计通关 3 个不同关卡', type:'stages', target:3, reward:2 },
+  { id:'stars_15', title:'三星之路', desc:'累计获得 15 颗关卡星星', type:'stars', target:15, reward:4 }
+];
+let taskState = { claimed:{} };
+let taskStats = { totalKills:0, zombieKills:0, wavesCleared:0 };
+
+function loadTaskState(){
+  try{
+    const raw = localStorage.getItem(TASK_STATE_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(d && d.claimed && typeof d.claimed === 'object') taskState.claimed = d.claimed;
+    }
+    const sr = localStorage.getItem(TASK_STATS_KEY);
+    if(sr){
+      const d = JSON.parse(sr);
+      if(d && typeof d === 'object'){
+        taskStats.totalKills = Math.max(0, Math.floor(Number(d.totalKills) || 0));
+        taskStats.zombieKills = Math.max(0, Math.floor(Number(d.zombieKills) || 0));
+        taskStats.wavesCleared = Math.max(0, Math.floor(Number(d.wavesCleared) || 0));
+      }
+    }
+  }catch(e){}
+}
+function saveTaskState(){
+  try{
+    localStorage.setItem(TASK_STATE_KEY, JSON.stringify(taskState));
+    localStorage.setItem(TASK_STATS_KEY, JSON.stringify(taskStats));
+  }catch(e){}
+}
+function getTaskProgress(task){
+  if(task.type === 'stage') return Math.max(0, stageProgress.stars[task.target] ? 1 : 0);
+  if(task.type === 'kills') return taskStats.totalKills;
+  if(task.type === 'stages'){
+    let n = 0;
+    for(const k in stageProgress.stars) if((stageProgress.stars[k] || 0) > 0) n++;
+    return n;
+  }
+  if(task.type === 'stars') return getTotalEarnedStars();
+  return 0;
+}
+function isTaskComplete(task){ return getTaskProgress(task) >= task.target; }
+function isTaskClaimed(task){ return taskState.claimed[task.id] === true; }
+function claimTask(task){
+  if(!isTaskComplete(task) || isTaskClaimed(task)) return false;
+  taskState.claimed[task.id] = true;
+  skillPoints += task.reward;
+  saveTaskState();
+  saveSkillTree();
+  recalcPlayerStats();
+  return true;
+}
+function getClaimableTaskCount(){
+  let n=0;
+  for(const t of TASKS) if(isTaskComplete(t) && !isTaskClaimed(t)) n++;
+  return n;
+}
+function recordEnemyTaskKill(e){
+  taskStats.totalKills++;
+  if(e && (e.type === 'zombie' || e.type === 'elite_zombie')) taskStats.zombieKills++;
+  saveTaskState();
+}
+function recordWaveTaskClear(){
+  taskStats.wavesCleared++;
+  saveTaskState();
+}
+
 function recordStageResult(stageNum, stars){
   const prev = stageProgress.stars[stageNum] || 0;
+  const firstClear = prev <= 0;
   if(stars > prev) stageProgress.stars[stageNum] = stars;
   if(stageNum >= stageProgress.unlockedMax){
     stageProgress.unlockedMax = Math.min(TOTAL_STAGES, stageNum + 1);
   }
   saveStageProgress();
+  saveTaskState();
+  if(firstClear){
+    const got=unlockRandomCatBroForStage(stageNum);
+    lastCatBroReward = got || null;
+    if(got) banner={text:'获得猫小弟：'+got.name,life:2.2};
+  } else {
+    lastCatBroReward = null;
+  }
 }
 function calcStarsByCastleHp(hp){
   if(hp >= 80) return 3;
@@ -877,32 +1103,84 @@ function calcStars(hpRatio){ return calcStarsByCastleHp(Math.round(hpRatio * 100
 // ================= 关卡配置 =================
 // 第 1 关 = 教学关（走原有逻辑）
 // 第 2 关起：每关 3 波，难度线性递增
-const STAGE_WAVE_TEMPLATES = {
-  1: ['zombie','zombie','zombie','zombie','runner','runner','zombie','zombie'],
-  2: ['zombie','zombie','runner','runner','zombie','spitter','zombie','runner','zombie','zombie'],
-  3: ['zombie','zombie','runner','runner','zombie','brute','brute','elite_brute','zombie','zombie'],
-  4: ['zombie','runner','runner','spitter','spitter','zombie','zombie','brute','runner','zombie','zombie'],
-  5: ['brute','brute','zombie','zombie','runner','runner','spitter','spitter','zombie','runner','zombie','zombie'],
-  6: ['elite_runner','zombie','zombie','runner','spitter','zombie','brute','runner','zombie','zombie','runner','brute','zombie']
+// ================= 关卡波次压力预算（v1.03） =================
+// 6 波固定结构：预算代表“压力量级”，不是死板的怪物数量。
+const STAGE_WAVE_PRESSURE = [10, 13, 17, 21, 27, 34];
+const ENEMY_PRESSURE = {
+  zombie: 1.0,
+  runner: 1.15,
+  brute: 2.8,
+  spitter: 1.8,
+  elite_zombie: 2.8,
+  elite_runner: 3.0,
+  elite_brute: 7.0,
+  elite_spitter: 4.0
 };
+const STAGE_WAVE_TYPES = {
+  1: ['zombie','runner'],
+  2: ['zombie','runner','spitter'],
+  3: ['zombie','runner','spitter','brute'],
+  4: ['zombie','runner','spitter','brute'],
+  5: ['zombie','runner','spitter','brute'],
+  6: ['zombie','runner','spitter','brute']
+};
+
+function buildPressureWave(stageNum, waveNum){
+  const baseBudget = STAGE_WAVE_PRESSURE[clamp(waveNum - 1, 0, 5)];
+  // 关卡递增主要提升压力预算；不直接把怪物血量无限放大。
+  const budget = baseBudget * (1 + Math.max(0, stageNum - 1) * 0.08);
+  const pool = STAGE_WAVE_TYPES[waveNum] || STAGE_WAVE_TYPES[6];
+  const queue = [];
+  let remaining = budget;
+
+  // 第 3、6 波各保证至少一个精英，形成明确的节奏节点。
+  if(waveNum === 3 || waveNum === 6){
+    const eliteType = waveNum === 3 ? 'elite_zombie' : 'elite_brute';
+    queue.push(eliteType);
+    remaining -= ENEMY_PRESSURE[eliteType];
+  }
+
+  let guard = 0;
+  while(remaining >= 1 && guard++ < 100){
+    const candidates = pool.filter(t => ENEMY_PRESSURE[t] <= remaining + 0.01);
+    if(!candidates.length) break;
+    // 越高波越容易出现重型/远程，但仍保留大量基础单位。
+    const weights = candidates.map(t => {
+      if(waveNum >= 5 && t === 'brute') return 1.35;
+      if(waveNum >= 3 && t === 'spitter') return 1.15;
+      if(t === 'runner') return 1.05;
+      return 1;
+    });
+    let total = weights.reduce((a,b)=>a+b,0);
+    let r = Math.random() * total;
+    let pick = candidates[0];
+    for(let i=0;i<candidates.length;i++){
+      r -= weights[i];
+      if(r <= 0){ pick=candidates[i]; break; }
+    }
+    queue.push(pick);
+    remaining -= ENEMY_PRESSURE[pick];
+  }
+
+  // 防止预算尾数导致波次过短。
+  if(queue.length < 5) queue.push('zombie','runner');
+  for(let i=queue.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [queue[i],queue[j]]=[queue[j],queue[i]];
+  }
+  return queue;
+}
+
 function getStageConfig(stageNum){
   const N = stageNum;
   return {
-    hpScale: 1 + (N - 1) * 0.16,
-    spScale: 1 + (N - 1) * 0.02,
-    dmgScale: 1 + (N - 1) * 0.03
+    hpScale: 1 + Math.max(0, N - 1) * 0.08,
+    spScale: 1 + Math.max(0, N - 1) * 0.02,
+    dmgScale: 1 + Math.max(0, N - 1) * 0.025
   };
 }
 function getStageWavePlan(stageNum, waveNum){
-  const base = STAGE_WAVE_TEMPLATES[waveNum] || STAGE_WAVE_TEMPLATES[6];
-  const list = base.slice();
-  // 后续关卡主要提高数量，而不是凭空加入新机制
-  const extra = Math.min(8, Math.floor((stageNum - 1) * (waveNum >= 4 ? 1.2 : 0.8)));
-  for(let i=0;i<extra;i++){
-    const candidates = waveNum >= 4 ? ['zombie','runner','spitter'] : ['zombie','runner'];
-    list.push(candidates[i % candidates.length]);
-  }
-  return list;
+  return buildPressureWave(stageNum, waveNum);
 }
 
 // ================= 进度条目标 & 同屏怪数 =================
@@ -985,7 +1263,7 @@ function drawWeaponSelect(){
     weaponSelectRects.push({x:c.x-100,y:y-150,w:200,h:300,key:c.key});
   }
   const bx=W/2, by=790;
-  UI.drawButton(ctx,bx-150,by-34,300,68,'开始守城', 'btn_yellow', 28);
+  drawAppButton({x:bx,y:by,w:300,h:68},'开始守城','#ffd24a','#fff',{fontSize:25});
   weaponSelectStartRect={x:bx-150,y:by-34,w:300,h:68};
   drawUIText('提示：键盘 1/2/3 可快速选择武器',W/2,890,'muted',{size:16,strokeWidth:3});
 }
@@ -1133,18 +1411,31 @@ function endSupportStrike(){
 }
 
 // 生成 Boss（从屏幕上方走入）
+function getBossTier(stageNum){
+  return Math.min(4, Math.max(1, stageNum));
+}
+function getBossConfig(stageNum){
+  const tier = getBossTier(stageNum);
+  const hp = [1700, 2000, 2350, 2750][tier - 1];
+  return { tier, hp, name:'BOSS ' + tier };
+}
+
+// 生成 Boss：4 个阶段型 Boss，血量不再随关卡无限指数膨胀。
 function spawnBoss(){
   bossPhase = true;
   bossSummonTimer = 3.5;
-  const hp = 1700 * (1 + Math.max(0,currentStage-1) * 0.35);
+  const cfg = getBossConfig(currentStage);
+  const hp = cfg.hp;
   const e = {
-    id: nextEnemyId++, isBoss:true, x:WORLD.w/2, y:330, r:64,
-    hp, maxHp:hp, speed:0, dmg:0, color:'#a83232', type:'elite', visualType:'elite',
-    elite:true, ranged:true, shootCd:2.4, angle:Math.PI/2, atkCd:0, hitFlash:0,
+    id: nextEnemyId++, isBoss:true, bossTier:cfg.tier,
+    x:WORLD.w/2, y:330, targetY:330, introT:0, introDuration:1.15,
+    r:64, hp, maxHp:hp, speed:0, dmg:0, color:'#a83232', type:'elite', visualType:'elite',
+    elite:true, ranged:true, shootCd:1.8, bossAttackTimer:0, bossBurstCount:0,
+    bossSummonTimer:3.6, bossBurstTimer:0, bossBurstRemaining:0, angle:Math.PI/2, atkCd:0, hitFlash:0,
     slowTimer:0, frozenTimer:0, dead:false, laserHeatStacks:0, laserHeatTimer:0, laserLastHit:-999
   };
   enemies.push(e); bossEnemy=e;
-  banner={text:'BOSS 出现！',life:2.5}; cam.shake=Math.max(cam.shake,20); sfx('boom');
+  banner={text:cfg.name + ' 出现！',life:2.5}; cam.shake=Math.max(cam.shake,20); sfx('boom');
 }
 
 // ================= 空袭支援过场绘制 =================
@@ -1359,10 +1650,12 @@ function showStageVictory(){
     stars: stars,
     hpRatio: hpRatio,
     castleHp: castleHp,
-    isLast: stageNum >= TOTAL_STAGES
+    isLast: stageNum >= TOTAL_STAGES,
+    catReward: lastCatBroReward
   };
   state = 'stageVictory';
   stageVictoryAnimT = 0;
+  lastCatBroReward = null;
   last = performance.now();
 }
 
@@ -2246,8 +2539,11 @@ function onPointerDown(e){
 
   // ============ 首屏启动页 ============
   if(state === 'boot'){
-    state = 'menu';
-    menuInit();
+    if(bootStartBtnRect && hitRect(bootStartBtnRect,p)){
+      currentPrepStage=Math.max(1,Math.min(TOTAL_STAGES,stageProgress.unlockedMax||1));
+      state='stagePrep';
+      last=performance.now();
+    }
     return;
   }
 
@@ -2302,88 +2598,52 @@ function onPointerDown(e){
     return;
   }
 
-  // ============ 主菜单 ============
-  if(state === 'menu'){
-    // ★ 隐藏：右上角 80×80 连点 3 次，重置教学完成标记
-    if(p.x > W - 80 && p.y < 80){
-      const nowT = performance.now();
-      if(nowT - menuTapLast < 1500){
-        menuTapCount++;
-      } else {
-        menuTapCount = 1;
-      }
-      menuTapLast = nowT;
-      if(menuTapCount >= 3){
-        menuTapCount = 0;
-        try{ localStorage.removeItem(TUTORIAL_DONE_KEY); }catch(e){}
-        menuToast = { text: '教学进度已重置，点击开始将重新走教学', life: 3.0 };
-        return;
-      }
-      return;
-    }
+  // ============ 主菜单 / 五大主导航 ============
+  // 全局底部导览：所有主界面都可直接切换，不需要点左上角返回。
+  if(GLOBAL_NAV_STATES.has(state) && handleGlobalNav(p)) return;
 
-    const sb = MENU_START_BTN;
-    if(p.x >= sb.x - sb.w/2 && p.x <= sb.x + sb.w/2 &&
-       p.y >= sb.y - sb.h/2 && p.y <= sb.y + sb.h/2){
-      state = 'catselect';
-      menuInit();
+  if(state === 'menu'){
+    if(mainResetConfirm){
+      if(hitRect(mainResetConfirmRects[0],p)){ clearAllGameData(); return; }
+      if(hitRect(mainResetConfirmRects[1],p)){ mainResetConfirm=false; return; }
       return;
     }
-    const mbl = MENU_LB_BTN;
-    if(p.x >= mbl.x - mbl.w/2 && p.x <= mbl.x + mbl.w/2 &&
-       p.y >= mbl.y - mbl.h/2 && p.y <= mbl.y + mbl.h/2){
-      lbFrom = 'menu';
-      state = 'leaderboard';
-      lbBuffPopup = -1;
-      lbPopupCloseRect = null;
-      return;
-    }
-    const hb = MENU_HELP_BTN;
-    if(p.x >= hb.x - hb.w/2 && p.x <= hb.x + hb.w/2 &&
-       p.y >= hb.y - hb.h/2 && p.y <= hb.y + hb.h/2){
-      helpFrom = 'menu';
-      state = 'help';
-      return;
-    }
+    if(mainResetBtnRect && hitRect(mainResetBtnRect,p)){ mainResetConfirm=true; return; }
+    // 中央开始按钮区域
+    if(menuStartBtnRect && hitRect(menuStartBtnRect,p)){ currentPrepStage=Math.max(1,Math.min(TOTAL_STAGES,stageProgress.unlockedMax||1)); state='stagePrep'; last=performance.now(); return; }
     return;
   }
-  // ============ 技能树 ============
-  if(state === 'skillTree'){
-    if(skillBackBtn &&
-       p.x >= skillBackBtn.x - skillBackBtn.w/2 && p.x <= skillBackBtn.x + skillBackBtn.w/2 &&
-       p.y >= skillBackBtn.y - skillBackBtn.h/2 && p.y <= skillBackBtn.y + skillBackBtn.h/2){
-      state = skillTreeFrom;
-      if(state === 'stageVictory'){
-        stageVictoryAnimT = 1.6;
-      }
-      last = performance.now();
+  // ============ 闯关准备界面 ============
+  if(state === 'stagePrep'){
+    if(stagePrepResetBtnRect && hitRect(stagePrepResetBtnRect,p)){ mainResetConfirm=true; return; }
+    if(mainResetConfirm){
+      if(hitRect(mainResetConfirmRects[0],p)){ clearAllGameData(); return; }
+      if(hitRect(mainResetConfirmRects[1],p)){ mainResetConfirm=false; return; }
       return;
     }
-    if(skillResetBtn &&
-       p.x >= skillResetBtn.x - skillResetBtn.w/2 && p.x <= skillResetBtn.x + skillResetBtn.w/2 &&
-       p.y >= skillResetBtn.y - skillResetBtn.h/2 && p.y <= skillResetBtn.y + skillResetBtn.h/2){
-      resetSkillTree();
-      sfx('pickup');
-      return;
+    if(prepStartRect && hitRect(prepStartRect,p)){ startStageGame(currentPrepStage); return; }
+    if(p.y>=278 && p.y<=396){
+      const col=Math.floor((p.x-28)/137), row=Math.floor((p.y-278)/66), n=row*5+col+1;
+      if(col>=0 && col<5 && row>=0 && row<2 && n<=TOTAL_STAGES && n<=stageProgress.unlockedMax){ currentPrepStage=n; return; }
     }
-    for(const r of skillNodeRects){
-      if(p.x >= r.x && p.x <= r.x + r.w &&
-         p.y >= r.y && p.y <= r.y + r.h){
-        const reason = getSkillLockReason(r.node);
-        if(reason === 'ok'){
-          if(unlockSkill(r.node)){
-            sfx('buff');
-          }
-        } else {
+    for(const r of prepWeaponRects){ if(hitRect(r,p)){ currentWeapon=r.key; return; } }
+    for(const r of prepCatRects){ if(hitRect(r,p)){ toggleCatBroDeploy(r.id); return; } }
+    return;
+  }
+  if(state === 'home'){
+    for(const r of homeCatRects){ if(hitRect(r,p) && isCatBroOwned(r.id)){ toggleCatBroDeploy(r.id); return; } }
+    return;
+  }
+  if(state === 'placeholder'){ return; }
+  // ============ 任务界面 ============
+  if(state === 'tasks'){
+    if(taskSkillTreeEntryRect && hitRect(taskSkillTreeEntryRect,p)){ skillTreeFrom='tasks'; state='skillTree'; return; }
+    for(const r of taskRects){
+      if(p.x >= r.x && p.x <= r.x+r.w && p.y >= r.y && p.y <= r.y+r.h){
+        if(r.claimable){
+          if(claimTask(r.task)) sfx('pickup');
+        } else if(!r.complete){
           sfx('hit');
-          // 提示玩家锁住原因
-          if(reason === 'stage'){
-            banner = { text: '需通关第 ' + r.node.reqStage + ' 关', life: 1.2 };
-          } else if(reason === 'prev'){
-            banner = { text: '需先解锁前置技能', life: 1.2 };
-          } else if(reason === 'star'){
-            banner = { text: '星级不足', life: 1.2 };
-          }
         }
         return;
       }
@@ -2391,6 +2651,30 @@ function onPointerDown(e){
     return;
   }
 
+  // ============ 技能树 ============
+  if(state === 'skillTree'){
+    // 弹窗优先于滚动，导航仍可在最底部快速切换。
+    if(skillDetailNode){
+      if(skillDetailCloseRect && hitRect(skillDetailCloseRect,p)){ skillDetailNode=null; return; }
+      if(skillDetailLearnRect && hitRect(skillDetailLearnRect,p)){
+        if(unlockSkill(skillDetailNode)){ sfx('buff'); skillDetailNode=null; }
+        else sfx('hit');
+        return;
+      }
+      // 点击弹窗主体不关闭，避免误触；点空白区域不做操作。
+      return;
+    }
+    if(skillResetBtn && p.x>=skillResetBtn.x-skillResetBtn.w/2 && p.x<=skillResetBtn.x+skillResetBtn.w/2 && p.y>=skillResetBtn.y-skillResetBtn.h/2 && p.y<=skillResetBtn.y+skillResetBtn.h/2){
+      resetSkillTree(); sfx('pickup'); return;
+    }
+    // 技能列表采用 pointerdown 记录、pointerup 打开详情，支持拖拽滚动而不误开技能。
+    const listTop=310, listBottom=GLOBAL_NAV_Y-18;
+    if(p.y>=listTop && p.y<=listBottom){
+      skillScroll.dragging=true; skillScroll.startY=p.y; skillScroll.startX=p.x; skillScroll.startScrollY=skillScrollY; skillScroll.moved=false;
+      return;
+    }
+    return;
+  }
   // ============ 选关界面 ============
   if(state === 'stageSelect'){
     // 红X：返回选猫
@@ -2437,6 +2721,27 @@ function onPointerDown(e){
     }
     return;
   }
+  // ============ 猫小弟收藏 / 部署 ============
+  if(state === 'catbroCollection'){
+    if(catBroCollectionBackRect && p.x>=catBroCollectionBackRect.x && p.x<=catBroCollectionBackRect.x+catBroCollectionBackRect.w && p.y>=catBroCollectionBackRect.y && p.y<=catBroCollectionBackRect.y+catBroCollectionBackRect.h){
+      state='catselect'; return;
+    }
+    for(const r of catBroCollectionRects){
+      if(p.x>=r.x && p.x<=r.x+r.w && p.y>=r.y && p.y<=r.y+r.h){
+        if(isCatBroOwned(r.id)){
+          const before=catBroDeploy.length;
+          toggleCatBroDeploy(r.id);
+          if(before>=3 && !catBroDeploy.includes(r.id)) banner={text:'最多部署3只猫小弟',life:1.2};
+        }
+        return;
+      }
+    }
+    if(catBroCollectionStartRect && p.x>=catBroCollectionStartRect.x && p.x<=catBroCollectionStartRect.x+catBroCollectionStartRect.w && p.y>=catBroCollectionStartRect.y && p.y<=catBroCollectionStartRect.y+catBroCollectionStartRect.h){
+      state='catselect'; return;
+    }
+    return;
+  }
+
   // ============ 选猫界面 ============
   if(state === 'catselect'){
     // 正在编辑名字：先提交
@@ -2462,6 +2767,11 @@ function onPointerDown(e){
       }
     }
 
+    // 猫小弟收藏入口
+    if(CATCHOOSE_BRO_BTN && p.x>=CATCHOOSE_BRO_BTN.x-CATCHOOSE_BRO_BTN.w/2 && p.x<=CATCHOOSE_BRO_BTN.x+CATCHOOSE_BRO_BTN.w/2 && p.y>=CATCHOOSE_BRO_BTN.y-CATCHOOSE_BRO_BTN.h/2 && p.y<=CATCHOOSE_BRO_BTN.y+CATCHOOSE_BRO_BTN.h/2){
+      state='catbroCollection'; last=performance.now(); return;
+    }
+
     // 开始闯关
     const sb = CATCHOOSE_STAGE_BTN;
     if(p.x >= sb.x - sb.w/2 && p.x <= sb.x + sb.w/2 &&
@@ -2470,6 +2780,18 @@ function onPointerDown(e){
       state = 'stageSelect';
       stageScrollY = 0;
       return;
+    }
+
+    // 任务入口
+    {
+      const tb = CATCHOOSE_TASK_BTN;
+      if(p.x >= tb.x - tb.w/2 && p.x <= tb.x + tb.w/2 &&
+         p.y >= tb.y - tb.h/2 && p.y <= tb.y + tb.h/2){
+        taskScrollY = 0;
+        state = 'tasks';
+        last = performance.now();
+        return;
+      }
     }
 
     // 技能树入口
@@ -2699,36 +3021,6 @@ function onPointerDown(e){
     }
     return;
   }
-  if(state === 'catbro'){
-    for(const c of catBroCards){
-      if(p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h){
-        const idx = catBroSelectedSkills.indexOf(c.skill);
-        if(idx >= 0){
-          catBroSelectedSkills.splice(idx, 1);
-        } else if(catBroSelectedSkills.length < 2){
-          catBroSelectedSkills.push(c.skill);
-        }
-        return;
-      }
-    }
-    const cb = CATBRO_CONFIRM_BTN;
-    if(p.x >= cb.x - cb.w/2 && p.x <= cb.x + cb.w/2 &&
-       p.y >= cb.y - cb.h/2 && p.y <= cb.y + cb.h/2){
-      if(catBroSelectedSkills.length >= 1){
-        // 把选中的技能从主角身上移除（主角不能再使用）
-        for(const sk of catBroSelectedSkills){
-          catBroTakenSkills.push(sk);
-        }
-        recalcPlayerStats();
-        initCatBro(catBroSelectedSkills.slice());
-        state = 'playing';
-        startWave(wave);
-        last = performance.now();
-      }
-      return;
-    }
-    return;
-  }
   if(state !== 'playing') return;
 
   if(Math.hypot(p.x - AVATAR.x, p.y - AVATAR.y) < AVATAR.r + 14){
@@ -2766,6 +3058,14 @@ function onPointerDown(e){
 }
 
 function onPointerMove(e){
+  if(state === 'skillTree' && skillScroll.dragging && !skillDetailNode){
+    e.preventDefault();
+    const p = toCanvasXY(e.clientX, e.clientY);
+    const dy = p.y - skillScroll.startY;
+    if(Math.abs(dy) > 8 || Math.abs(p.x-skillScroll.startX) > 8) skillScroll.moved=true;
+    skillScrollY = clamp(skillScroll.startScrollY - dy, 0, skillScrollMaxY);
+    return;
+  }
   // 选关滚动
   if(state === 'stageSelect' && stageScroll.dragging){
     e.preventDefault();
@@ -2782,6 +3082,17 @@ function onPointerMove(e){
 }
 
 function onPointerUp(e){
+  if(state === 'skillTree' && skillScroll.dragging){
+    const p=toCanvasXY(e.clientX,e.clientY);
+    const didMove=skillScroll.moved;
+    skillScroll.dragging=false;
+    if(!didMove){
+      for(const r of skillNodeRects){
+        if(hitRect(r,p)){ skillDetailNode=r.node; return; }
+      }
+    }
+    return;
+  }
   if(state === 'stageSelect'){
     stageScroll.dragging = false;
   }
@@ -2804,6 +3115,12 @@ function audioUnlockByClick(){
   setTimeout(() => { try{ lastBgmState = state; syncBGM(); }catch(e){} }, 800);
 }
 cv.addEventListener('click', audioUnlockByClick);
+cv.addEventListener('wheel', e=>{
+  if(state==='skillTree' && !skillDetailNode){
+    e.preventDefault();
+    skillScrollY=clamp(skillScrollY+e.deltaY*0.75,0,skillScrollMaxY);
+  }
+},{passive:false});
 
 // ================= 敌人类型 =================
 //
@@ -2843,14 +3160,14 @@ cv.addEventListener('click', audioUnlockByClick);
 //   armored  = 骑士（护甲精英，怕毛球/罐头）
 //   elite    = 大恶魔（恶魔精英，最强）
 const ENEMY_TYPES = {
-  zombie:  { hp: 42,  speed: 34, r: 15, dmg: 0, color: '#7a7a7a' },
-  runner:  { hp: 34,  speed: 66, r: 13, dmg: 0, color: '#9aa0a4' },
-  brute:   { hp: 150, speed: 17, r: 27, dmg: 0, color: '#4a4a4a' },
-  spitter: { hp: 52,  speed: 28, r: 17, dmg: 0, color: '#a83232', ranged: true },
-  elite_zombie:  { hp: 105, speed: 40, r: 22, dmg: 0, color: '#ffd45a', elite: true },
-  elite_runner:  { hp: 82, speed: 88, r: 19, dmg: 0, color: '#ff9a3d', elite: true },
-  elite_brute:   { hp: 390, speed: 18, r: 38, dmg: 0, color: '#d7a86e', elite: true },
-  elite_spitter: { hp: 150, speed: 30, r: 24, dmg: 0, color: '#d96cff', ranged: true, elite: true }
+  zombie:  { hp: 42,  speed: 70, r: 15, dmg: 5,  color: '#7a7a7a' },
+  runner:  { hp: 34,  speed: 120, r: 13, dmg: 5,  color: '#9aa0a4' },
+  brute:   { hp: 150, speed: 45, r: 27, dmg: 10, color: '#4a4a4a' },
+  spitter: { hp: 52,  speed: 72, r: 17, dmg: 0,  color: '#a83232', ranged: true },
+  elite_zombie:  { hp: 105, speed: 76,  r: 22, dmg: 8,  color: '#ffd45a', elite: true },
+  elite_runner:  { hp: 82, speed: 132, r: 19, dmg: 8,  color: '#ff9a3d', elite: true },
+  elite_brute:   { hp: 390, speed: 48, r: 38, dmg: 16, color: '#d7a86e', elite: true },
+  elite_spitter: { hp: 150, speed: 78, r: 24, dmg: 0,  color: '#d96cff', ranged: true, elite: true }
 };
 
 // ================= 掉落物 =================
@@ -3151,7 +3468,7 @@ function dealDamage(e, baseDmg, type, opts){
   let crit = false;
   const critChance = CRIT_CHANCE + (player.skillCritBonus || 0);
   if(!noCrit && Math.random() < critChance){
-    dmg *= CRIT_MULT;
+    dmg *= (CRIT_MULT + (player.skillCritMultBonus || 0));
     crit = true;
   }
 
@@ -3210,7 +3527,7 @@ let waveTotal = 0;
 const CASTLE_MAX_HP = 100;
 const CASTLE_WALL_Y = 1060;
 const CASTLE_FRONT_Y = 1018;
-const RANGED_STOP_Y = 640;
+const RANGED_STOP_Y = 570;
 let castleHp = CASTLE_MAX_HP;
 let castleMaxHp = CASTLE_MAX_HP;
 let playerDead = false;
@@ -3408,6 +3725,7 @@ let progressTarget  = 0;     // = progressTargets[3]
 let progressMarkers = [];    // 标记列表
 let bossPhase       = false; // 是否进入 Boss 阶段
 let bossEnemy       = null;  // Boss 引用
+let bossWarnings   = [];     // Boss4 地面预警
 let supportFx       = null;  // 空袭过场状态
 let airdropFx       = null;  // 空投箱状态
 let progressPulse   = 0;     // 进度条满时闪烁
@@ -3435,31 +3753,6 @@ let catBros = [];             // 所有猫小弟
 let playerMoveSpeed = 0;      // 主角当前帧速度（px/s），用于猫小弟跟随判定
 let playerPrevX = 0;
 let playerPrevY = 0;
-let catBroSpawnCount = 0;     // 已经触发过几次
-let catBroSelectedSkills = [];
-let catBroCards = [];
-let catBroTakenSkills = [];   // 已被转给猫小弟的技能，主角不能再使用
-const CATBRO_CONFIRM_BTN = { x: W/2, y: H - 120, w: 300, h: 72 };
-const CATBRO_SKILL_INFO = {
-  can:       { name:'罐头',  color:'#ff9f6b', icon:'canpower',       desc:'每 6 秒自动投掷罐头' },
-  orb:       { name:'毛球',  color:'#ffb0d0', icon:'orb_count',      desc:'毛球环绕猫小弟旋转' },
-  laser:     { name:'激光',  color:'#88eeff', icon:'laserpower',     desc:'每 14 秒爆发一道激光' },
-  missile:   { name:'导弹',  color:'#ff8a3c', icon:'missile_damage', desc:'每 8 秒发射两枚导弹' },
-  airstrike: { name:'轰炸',  color:'#ff6b4a', icon:'airstrike',      desc:'每 9 秒空投两颗炸弹' }
-};
-const CATBRO_SKILL_CD = {
-  can: 6, orb: 0, laser: 14, missile: 8, airstrike: 9
-};
-
-// 猫小弟专属台词库
-const CATBRO_LINES = {
-  join:      ['喵！我来帮你！', '小弟来也！', '大哥我来了喵~', '一起打怪喵！'],
-  can:       ['接招！罐头炸弹！', '砸死你们喵！', '喵！看我的罐头！'],
-  orb:       ['毛球起飞！', '看我的毛球！', '转圈圈喵！'],
-  laser:     ['激光锁定！', '咻——！', '烧你们喵！'],
-  missile:   ['导弹发射！', '追踪导弹喵！', '锁定目标！'],
-  airstrike: ['空袭来咯！', '炸弹雨！', '天上掉罐头喵！']
-};
 
 // ============ 无尽模式曲线 ============
 function getEndlessHpScale(n){
@@ -3584,11 +3877,14 @@ function reset(mode, stageNum){
     stageNum = (mode === 'stage') ? (currentStageNum || 1) : 0;
   }
 
+  // 关键修复：准备界面选好的武器必须贯穿 reset()，不能每次重开又强制回到猫粮。
+  const selectedWeapon = (currentWeapon === 'laser' || currentWeapon === 'missile') ? currentWeapon : 'catfood';
+
   clearProgress();
   castleHp = CASTLE_MAX_HP;
   castleMaxHp = CASTLE_MAX_HP;
   playerDead = false;
-  currentWeapon = 'catfood';
+  currentWeapon = selectedWeapon;
   stageSpawnQueue = []; stageSpawnIndex = 0; stageSpawnTimer = 0; stageWaveClearHandled = false;
   bossSummonTimer = 4.0;
   state = 'playing';
@@ -3641,6 +3937,7 @@ function reset(mode, stageNum){
   progressMarkers = [];
   bossPhase       = false;
   bossEnemy       = null;
+    bossWarnings     = [];
   supportFx       = null;
   airdropFx       = null;
   progressPulse    = 0;
@@ -3670,16 +3967,11 @@ function reset(mode, stageNum){
   airstrikeBombs = []; voiceCd = 0;
   nextEnemyId = 1;
   catBros = [];
-  catBroSpawnCount = 0;
-  initCatBro('catfood');
-  initCatBro('catfood');
-  initCatBro('catfood');
+  const deployed = getDeployedCatBros();
+  deployed.forEach((cfg, idx)=>initCatBro(cfg, idx));
   playerMoveSpeed = 0;
   playerPrevX = player.x;
   playerPrevY = player.y;
-  catBroSelectedSkills = [];
-  catBroCards = [];
-  catBroTakenSkills = [];
   waveTotal = 0;
   buffChoices = []; buffCards = [];
   orbBuffGiven = false;
@@ -3737,7 +4029,7 @@ function reset(mode, stageNum){
   castleHp = CASTLE_MAX_HP;
   castleMaxHp = CASTLE_MAX_HP;
   playerDead = false;
-  currentWeapon = 'catfood';
+  currentWeapon = selectedWeapon;
   stageSpawnQueue = []; stageSpawnIndex = 0; stageSpawnTimer = 0; stageWaveClearHandled = false;
   bossSummonTimer = 4.0;
 
@@ -3753,18 +4045,12 @@ function reset(mode, stageNum){
   unlockedWeapons.airstrike = false;
   recalcPlayerStats();
 
-  // 技能树"幸运开局"：随机获得 1 个 buff
-  if(sk.startBuff && stageNum >= 1){
-    const pool = BUFFS.filter(isBuffAvailable);
-    if(pool.length > 0){
-      applyBuff(randLine(pool).id);
-    }
-  }
-
   waveInStage = 1;
   wave = 1;
-  currentWeapon = 'catfood';
-  state = 'weaponSelect';
+  currentWeapon = selectedWeapon;
+  state = 'playing';
+  waveInStage=1; wave=1;
+  startWave(1);
   last = performance.now();
 }
 
@@ -3799,17 +4085,17 @@ function recalcPlayerStats(){
 
   // ===== 猫粮 =====
   const foodLv = b.firerate || 0;
-  player.bulletDamage = 14 * (1 + 0.18 * (b.giant_food || 0)) * (1 + 0.10 * foodLv);
-  player.fireRate = 0.38 / (1 + 0.25 * foodLv);
+  player.bulletDamage = 14 * (1 + 0.18 * (b.giant_food || 0)) * (1 + 0.10 * foodLv) * sk.damageMult;
+  player.fireRate = (0.38 / (1 + 0.25 * foodLv)) * sk.fireRateMult;
   player.pierce = 1 + (b.pierce || 0);
   player.multishot = (b.multishot || 0) === 0 ? 0 : ((b.multishot || 0) === 1 ? 2 : 4);
   player.foodExplosionLevel = b.can_explode || 0;
   player.foodSizeMult = 1 + 0.28 * (b.giant_food || 0);
 
   // ===== 激光 =====
-  player.laserDamage = 32;
+  player.laserDamage = 32 * sk.damageMult;
   player.laserWidthMult = 1 + 0.45 * (b.laser_width || 0);
-  player.laserCooldownMax = 0.42;
+  player.laserCooldownMax = 0.42 * sk.fireRateMult;
   player.laserDuration = 0.82;
   player.laserBurnLevel = b.laser_burn || 0;
   player.laserDefenseLevel = b.laser_defense || 0;
@@ -3818,19 +4104,19 @@ function recalcPlayerStats(){
   // ===== 导弹 =====
   const mm = b.missile_multishot || 0;
   player.missileCount = mm === 0 ? 1 : (mm === 1 ? 3 : 5);
-  player.missileDamage = 92 * (1 + 0.30 * (b.missile_giant || 0));
-  player.missileCooldownMax = 1.15 / (1 + 0.18 * (b.missile_reload || 0));
+  player.missileDamage = 92 * (1 + 0.30 * (b.missile_giant || 0)) * sk.damageMult;
+  player.missileCooldownMax = (1.15 / (1 + 0.18 * (b.missile_reload || 0))) * sk.fireRateMult;
   player.missileSpeedMult = 1;
   player.missileExplosionLevel = b.missile_explode || 0;
   player.missileSplitLevel = b.missile_split || 0;
   player.missileGiantLevel = b.missile_giant || 0;
 
   // ===== 旧武器兼容值（不再作为主武器） =====
-  player.canDamage   = CAN_BASE_DAMAGE * (1 + 0.50 * (b.canpower || 0)) * sk.canDmgMult;
-  player.blastRadius = 140 * (1 + 0.35 * (b.blast || 0)) * sk.canBlastMult;
+  player.canDamage   = CAN_BASE_DAMAGE * (1 + 0.50 * (b.canpower || 0));
+  player.blastRadius = 140 * (1 + 0.35 * (b.blast || 0));
 
   // ===== 毛球 =====
-  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0){
+  if(unlockedWeapons.orb){
     player.orbCount = 3 + (b.orb_count || 0);
   } else {
     player.orbCount = 0;
@@ -3847,11 +4133,17 @@ function recalcPlayerStats(){
   player.airstrikeDamage = 70 + al * 25;
   player.airstrikeCD     = 6.0 / (1 + 0.12 * (al > 0 ? al - 1 : 0));
 
-  // ===== 生命 / 速度 / 暴击（技能树） =====
-  player.maxHp = 100 + sk.hpBonus * 6;
+  // ===== 1.04 永久成长：只作用于主角/城墙，不再绑定某一把武器 =====
+  player.globalDamageMult = sk.damageMult;
+  player.globalFireRateMult = sk.fireRateMult;
+  player.bulletRangeMult = sk.rangeMult;
+  player.maxHp = 100 + sk.hpBonus;
   player.hp = Math.min(player.hp, player.maxHp);
   player.speed = 240 * sk.speedMult;
   player.skillCritBonus = sk.critBonus;
+  player.skillCritMultBonus = sk.critMultBonus;
+  player.skillDamageTakenMult = sk.playerDamageTakenMult;
+  player.skillWallDamageTakenMult = sk.wallDamageTakenMult;
 }
 
 function applyBuff(id){
@@ -4057,7 +4349,7 @@ function startWave(n){
     stageSpawnIndex = 0;
     stageSpawnTimer = 0.2;
     waveTotal = stageSpawnQueue.length;
-    banner = { text: '第 ' + n + ' / 6 波', life: 1.8 };
+    banner = { text: '第 ' + n + ' / 6 波 · 压力 ' + STAGE_WAVE_PRESSURE[n-1], life: 1.8 };
     return;
   }
   // 无尽模式兼容
@@ -4106,12 +4398,20 @@ function isWaveClear(){
   return waveSpawn.stagePools[lastIdx].remaining === 0 && enemies.length === 0;
 }
 
+const CASTLE_LANE_MIN_X = 145;
+const CASTLE_LANE_MAX_X = WORLD.w - 145;
+function getEnemySpawnX(){ return rand(CASTLE_LANE_MIN_X, CASTLE_LANE_MAX_X); }
+function clampEnemyToLane(e){
+  if(!e || e.isBoss) return;
+  e.x = clamp(e.x, CASTLE_LANE_MIN_X, CASTLE_LANE_MAX_X);
+}
+
 function spawnEnemy(type, spawnX, spawnY){
   let elite = false;
   let baseType = type;
   if(type.indexOf('elite_') === 0){ elite = true; baseType = type.slice(6); }
   const base = ENEMY_TYPES[type] || ENEMY_TYPES[baseType] || ENEMY_TYPES.zombie;
-  let x = spawnX != null ? spawnX : rand(70, WORLD.w - 70);
+  let x = spawnX != null ? clamp(spawnX, CASTLE_LANE_MIN_X, CASTLE_LANE_MAX_X) : getEnemySpawnX();
   let y = spawnY != null ? spawnY : (50 + rand(-20,20));
   const cfg = currentStage >= 1 ? getStageConfig(currentStage) : null;
   const waveHpMult = currentStage >= 1 ? 1 + (waveInStage - 1) * 0.12 : 1;
@@ -4124,14 +4424,14 @@ function spawnEnemy(type, spawnX, spawnY){
     speed: base.speed * spScale, dmg: base.dmg * dmgScale, color: base.color,
     type: baseType, visualType: baseType, elite, ranged: !!base.ranged,
     angle: Math.PI/2, atkCd: 0, hitFlash: 0, slowTimer: 0, frozenTimer: 0,
-    shootCd: elite && base.ranged ? 1.5 : 3.0,
+    shootCd: base.ranged ? (elite ? 1.35 : 1.65) : 0,
     wallAtkCd: 0, dead:false,
     laserHeatStacks:0, laserHeatTimer:0, laserLastHit:-999
   };
   if(elite){
     // 精英：体型已经体现在基础 r；额外只强化一个核心属性
     if(baseType === 'runner') e.speed *= 1.18;
-    if(baseType === 'spitter'){ e.shootCd = 2.1; e.eliteProjectileCount = 2; }
+    if(baseType === 'spitter'){ e.shootCd = elite ? 1.35 : 1.65; e.eliteProjectileCount = 2; }
     if(baseType === 'brute') e.hp *= 1.15;
     if(baseType === 'zombie') e.speed *= 1.08;
   }
@@ -4283,7 +4583,6 @@ function findHighestHpEnemy(){
 function fireMissile(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.missile) return;
-  if(catBroTakenSkills.indexOf('missile') >= 0) return;
   if(player.missileCooldown > 0) return;
   if(enemies.length === 0) return;
 
@@ -4413,10 +4712,44 @@ function updateMissiles(dt){
       if(e.dead) continue;
       if(Math.hypot(e.x - m.x, e.y - m.y) < e.r + 20){
         dealDamage(e, m.damage, 'missile');
-        burst(m.x, m.y, 14, '#ff8a3c', 320);
+        const explodeLv = player.missileExplosionLevel || 0;
+        if(explodeLv > 0){
+          const rr = explodeLv === 1 ? 92 : 132;
+          const splashMult = explodeLv === 1 ? 0.58 : 0.82;
+          for(const ex of enemies){
+            if(ex === e || ex.dead) continue;
+            if(Math.hypot(ex.x-m.x, ex.y-m.y) <= rr){
+              dealDamage(ex, m.damage * splashMult, 'missile');
+              burst(ex.x, ex.y, 5 + explodeLv * 2, '#ff9b4a', 240);
+            }
+          }
+          rings.push({x:m.x,y:m.y,maxR:rr,life:0.42,t:0.42,color:'#ff9b4a'});
+          burst(m.x,m.y,20 + explodeLv*8,'#ff8a3c',360 + explodeLv*70);
+        } else {
+          burst(m.x, m.y, 14, '#ff8a3c', 320);
+          rings.push({ x:m.x, y:m.y, maxR: 46, life:0.35, t:0.35, color:'#ff8a3c' });
+        }
         burst(m.x, m.y, 6, '#ffe0a0', 200);
-        rings.push({ x:m.x, y:m.y, maxR: 46, life:0.35, t:0.35, color:'#ff8a3c' });
-        cam.shake = Math.max(cam.shake, 7);
+        const splitLv = player.missileSplitLevel || 0;
+        // 子导弹不可再次分裂，避免指数增长导致卡死
+        if(splitLv > 0 && !m.isSplitChild){
+          const childCount = splitLv === 1 ? 3 : 5;
+          const childSpeed = MISSILE_SPEED * 0.78;
+          const spread = splitLv === 1 ? 0.95 : 1.25;
+          const baseA = Math.atan2(m.vy, m.vx);
+          for(let k=0;k<childCount;k++){
+            const a = baseA - spread/2 + (childCount > 1 ? spread*k/(childCount-1) : 0);
+            let childTarget = null, bestD = Infinity;
+            for(const ex of enemies){
+              if(ex.dead || ex === e) continue;
+              const d = Math.hypot(ex.x-m.x, ex.y-m.y);
+              if(d < bestD){bestD=d; childTarget=ex;}
+            }
+            missileList.push({x:m.x,y:m.y,vx:Math.cos(a)*childSpeed,vy:Math.sin(a)*childSpeed,launchA:a,spawnDelay:k*0.035,targetId:childTarget?childTarget.id:null,damage:m.damage*(splitLv===1?0.50:0.55),life:2.4,trail:[],isSplitChild:true});
+          }
+          burst(m.x,m.y,12 + splitLv*4,'#ff7a55',300);
+        }
+        cam.shake = Math.max(cam.shake, explodeLv > 0 ? 9 : 7);
         if(e.hp <= 0) killEnemy(e);
         hit = true;
         break;
@@ -4483,7 +4816,6 @@ function drawMissiles(){
 function tryThrowCan(){
   if(state !== 'playing' || !player) return false;
   if(!unlockedWeapons.can) return false;
-  if(catBroTakenSkills.indexOf('can') >= 0) return false;
   let best = null, bd = 1e9;
   for(const e of enemies){
     if(e.dead) continue;
@@ -4564,6 +4896,7 @@ function killEnemy(e, giveEnergy){
   e.dead = true;
   score += 10 + Math.floor(e.maxHp / 8);
   stageKillCount++;
+  recordEnemyTaskKill(e);
   burst(e.x, e.y, 16, e.color, 220);
   burst(e.x, e.y, 8, '#c94a4a', 180);
 
@@ -4611,7 +4944,6 @@ const LASER_COOLDOWN_MAX = 0.42;   // 冷却总时长
 function fireOrb(){
   if(state !== 'playing' || !player) return;
   if(!unlockedWeapons.orb) return;
-  if(catBroTakenSkills.indexOf('orb') >= 0) return;
   if(player.orbCooldown > 0) return;
   if(player.orbCooldown > 0) return;
   if(player.orbCount <= 0) return;
@@ -4684,14 +5016,14 @@ function updateLaser(dt){
   if(!laser.active) return;
   laser.timer+=dt;
   laser.angle=-Math.PI/2;
-  const ox=player.x, oy=player.y-player.r*0.6;
   const L=player.laserRadius||LASER_BASE_RADIUS;
   const beamHalfWidth=24*(player.laserWidthMult||1);
-  laserBeamHit(ox,oy,laser.angle,L,beamHalfWidth,dt);
   if(player.laserDouble){
-    const off=110*(player.laserWidthMult||1);
-    laserBeamHit(ox-off,oy,-Math.PI/2,L,beamHalfWidth*0.72,dt);
-    laserBeamHit(ox+off,oy,-Math.PI/2,L,beamHalfWidth*0.72,dt);
+    const off=58*(player.laserWidthMult||1);
+    laserBeamHit(player.x-off,player.y-player.r*0.6,-Math.PI/2,L,beamHalfWidth*0.86,dt);
+    laserBeamHit(player.x+off,player.y-player.r*0.6,-Math.PI/2,L,beamHalfWidth*0.86,dt);
+  }else{
+    laserBeamHit(player.x,player.y-player.r*0.6,laser.angle,L,beamHalfWidth,dt);
   }
   if(laser.timer>=laser.duration){
     laser.active=false; laser.hitCdMap.clear(); laserCooldown=player.laserCooldownMax||0.42;
@@ -4710,6 +5042,7 @@ function damagePlayer(d){
 }
 function damageCastle(amount){
   if(stageEnding) return;
+  amount *= (player.skillWallDamageTakenMult || 1);
   castleHp=Math.max(0,castleHp-amount);
   addFloatText(WORLD.w/2,CASTLE_WALL_Y-30,'-'+amount,'#ff5b5b',true);
   rings.push({x:WORLD.w/2,y:CASTLE_WALL_Y,maxR:90,life:0.45,t:0.45,color:'#ff5b5b'});
@@ -4792,9 +5125,9 @@ function update(dt){
   if(state !== 'playing'){
     if(cam) cam.shake = Math.max(0, cam.shake - dt * 46);
 
-    if(state === 'boot' || state === 'menu' || state === 'catselect' ||
+    if(state === 'boot' || state === 'menu' || state === 'catselect' || state === 'stagePrep' || state === 'home' || state === 'placeholder' ||
        state === 'help' || state === 'victory' || state === 'stageVictory' ||
-       state === 'tutorial' || state === 'catbro'){
+       state === 'tutorial'){
       gameTime += dt;
     }
     if(state === 'stageVictory'){
@@ -4804,7 +5137,7 @@ function update(dt){
       bootAnimT += dt;
     }
 
-    if(state === 'menu' || state === 'catselect'){
+    if(state === 'menu' || state === 'catselect' || state === 'stagePrep' || state === 'home' || state === 'placeholder'){
       menuTime += dt;
       menuEnterT = Math.min(1, menuEnterT + dt * 1.5);
     }
@@ -4916,6 +5249,8 @@ function update(dt){
     const SPREAD_PER_SHOT = 0.18;
     const spreadTotal     = (shots - 1) * SPREAD_PER_SHOT;
 
+    // 多发降低单发伤害，避免三/五连发成为无风险倍率提升
+    const multishotPenalty = shots >= 5 ? 0.50 : (shots >= 3 ? 0.70 : 1.0);
     for(let s = 0; s < shots; s++){
       const a = BASE_ANGLE - spreadTotal / 2 + s * SPREAD_PER_SHOT
               + rand(-0.02, 0.02);
@@ -4926,7 +5261,7 @@ function update(dt){
       bullets.push({
         x: mzX, y: mzY,
         vx: Math.cos(a) * 740, vy: Math.sin(a) * 740,
-        r: bulletR, dmg: player.bulletDamage, life: bulletLife,
+        r: bulletR, dmg: player.bulletDamage * multishotPenalty, life: bulletLife,
         pierce: player.pierce, hitSet: null,
         targetId: BULLET_HOMING && gunTarget ? gunTarget.id : null,
         homingTimer: 0,
@@ -5009,14 +5344,31 @@ function update(dt){
       if(Math.hypot(e.x - b.x, e.y - b.y) < e.r + b.r + 6){
         const bm = e.bulletMult !== undefined ? e.bulletMult : 1.0;
         dealDamage(e, b.dmg * bm, b.fromCatBro ? 'catbro' : 'bullet');
+        if(b.fromCatBro){
+          if(b.broSkill==='减速') e.slowTimer=Math.max(e.slowTimer||0,1.8);
+          if(b.broSkill==='爆炸'){
+            for(const ex of enemies){
+              if(ex===e || ex.dead) continue;
+              if(Math.hypot(ex.x-e.x,ex.y-e.y)<=54) dealDamage(ex,54,'catbro');
+            }
+            rings.push({x:e.x,y:e.y,maxR:54,life:0.28,t:0.28,color:'#ffb84a'});
+          }
+        }
         burst(b.x, b.y, 4, '#e8c46a', 150);
         if(!b.fromCatBro && player.foodExplosionLevel){
-          const rr=48 + 22*player.foodExplosionLevel;
+          const lv = player.foodExplosionLevel;
+          const rr = lv === 1 ? 92 : 128;
+          const splashMult = lv === 1 ? 0.62 : 0.86;
           for(const ex of enemies){
             if(ex===e || ex.dead) continue;
-            if(Math.hypot(ex.x-e.x,ex.y-e.y)<=rr) dealDamage(ex, b.dmg*(0.38+0.12*player.foodExplosionLevel), 'bullet');
+            if(Math.hypot(ex.x-e.x,ex.y-e.y)<=rr){
+              dealDamage(ex, b.dmg * splashMult, 'bullet');
+              burst(ex.x, ex.y, 5 + lv * 2, '#ffb04a', 220 + lv * 60);
+            }
           }
-          rings.push({x:e.x,y:e.y,maxR:rr,life:0.28,t:0.28,color:'#ffb04a'});
+          burst(e.x, e.y, 18 + lv * 8, '#ffb04a', 360 + lv * 80);
+          rings.push({x:e.x,y:e.y,maxR:rr,life:0.42,t:0.42,color:'#ffb04a'});
+          rings.push({x:e.x,y:e.y,maxR:rr*0.58,life:0.24,t:0.24,color:'#ffe0a0'});
         }
         sfx('hit');
 
@@ -5072,43 +5424,127 @@ function update(dt){
     const frozen=e.frozenTimer>0;
     const slowMul = frozen ? 0 : (e.slowTimer > 0 ? 0.35 : 1);
     if(e.isBoss){
-      e.shootCd-=dt;
-      if(e.shootCd<=0){
-        e.shootCd=2.4;
-        const a=Math.atan2(player.y-e.y,player.x-e.x);
-        eBullets.push({x:e.x,y:e.y,vx:Math.cos(a)*235,vy:Math.sin(a)*235,r:12,dmg:player.maxHp*0.14,life:5,isBossBullet:true});
+      e.shootCd -= dt;
+      e.bossSummonTimer -= dt;
+      const tier = e.bossTier || 1;
+      const aim = Math.atan2(player.y-e.y, player.x-e.x);
+
+      // Boss1~4 都使用裂变母弹，但每个等级有独立攻击节奏。
+      if(e.shootCd <= 0){
+        e.shootCd = tier === 2 ? 2.30 : (tier === 3 ? 2.45 : (tier === 4 ? 2.05 : 2.60));
+        const count = tier === 2 ? 2 : 1;
+        for(let n=0;n<count;n++){
+          const off = count === 1 ? 0 : (n === 0 ? -0.12 : 0.12);
+          const aa = aim + off;
+          eBullets.push({
+            x:e.x, y:e.y, vx:Math.cos(aa)*255, vy:Math.sin(aa)*255,
+            r:14, dmg:player.maxHp*(tier===4?0.16:0.14), life:5.5,
+            isBossBullet:true, splitTimer:tier===1?0.80:0.62,
+            splitCount:tier>=3?7:5,
+            splitSpread:tier>=3?Math.PI*0.82:Math.PI*0.64, canSplit:true
+          });
+        }
+        if(tier === 2){
+          e.bossBurstRemaining = 2;
+          e.bossBurstTimer = 0.34;
+        }
+      }
+
+      if(tier === 2 && e.bossBurstRemaining > 0){
+        e.bossBurstTimer -= dt;
+        if(e.bossBurstTimer <= 0){
+          e.bossBurstRemaining--;
+          e.bossBurstTimer = 0.34;
+          const aa = aim + (Math.random()-0.5)*0.14;
+          eBullets.push({
+            x:e.x,y:e.y,vx:Math.cos(aa)*270,vy:Math.sin(aa)*270,
+            r:12,dmg:player.maxHp*0.12,life:5,isBossBullet:true,
+            splitTimer:0.52,splitCount:5,splitSpread:Math.PI*0.62,canSplit:true
+          });
+        }
+      }
+
+      // Boss3：从 Boss 脚下召唤 2~3 只近战单位，绝不贴墙生成。
+      if(tier === 3 && e.bossSummonTimer <= 0){
+        e.bossSummonTimer = 5.8;
+        const n = 2 + Math.floor(Math.random()*2);
+        for(let k=0;k<n;k++){
+          const type = Math.random() < 0.55 ? 'runner' : 'zombie';
+          spawnEnemy(type, clamp(e.x + rand(-42,42), CASTLE_LANE_MIN_X, CASTLE_LANE_MAX_X), e.y + e.r + 18 + rand(-8,12));
+        }
+        burst(e.x,e.y+45,16,'#ff8a3c',260);
+        banner={text:'BOSS 召唤援军！',life:1.1};
+      }
+
+      // Boss4：方向性落石/炮击，先给地面预警，再落点爆炸。
+      if(tier === 4 && e.bossAttackTimer <= 0){
+        e.bossAttackTimer = 4.2;
+        const laneX = clamp(player.x + rand(-150,150), 80, WORLD.w-80);
+        const laneY = clamp(player.y + rand(-170,100), 180, CASTLE_FRONT_Y-80);
+        bossWarnings.push({x:laneX,y:laneY,t:0.95,maxT:0.95,r:78,damage:player.maxHp*0.18});
+        const aa = Math.atan2(laneY-e.y,laneX-e.x);
+        eBullets.push({x:e.x,y:e.y,vx:Math.cos(aa)*180,vy:Math.sin(aa)*180,r:14,dmg:player.maxHp*0.10,life:4,isBossBullet:true,splitTimer:0.9,splitCount:7,splitSpread:Math.PI*0.70,canSplit:true});
+      } else if(tier === 4){
+        e.bossAttackTimer -= dt;
       }
       continue;
     }
     if(frozen) continue;
     if(e.ranged){
-      // 远程怪走到屏幕中部后停下
+      // 远程怪快速抵达中段后停下；若玩家进入射程，即使尚未完全停下也允许开火。
       if(e.y < RANGED_STOP_Y) e.y += e.speed*slowMul*dt;
       e.shootCd-=dt;
-      if(e.shootCd<=0 && e.y>=RANGED_STOP_Y-5){
-        e.shootCd=e.elite?2.2:3.0;
+      const rangeOk = Math.hypot(player.x-e.x, player.y-e.y) <= 980;
+      if(e.shootCd<=0 && (e.y>=RANGED_STOP_Y-80 || rangeOk)){
+        e.shootCd=e.elite?2.15:2.75;
         const a=Math.atan2(player.y-e.y,player.x-e.x);
         const count=e.eliteProjectileCount||1;
         for(let k=0;k<count;k++){
           const off=count===1?0:(k===0?-0.10:0.10);
           const aa=a+off;
-          eBullets.push({x:e.x,y:e.y,vx:Math.cos(aa)*190,vy:Math.sin(aa)*190,r:e.elite?11:9,dmg:player.maxHp*(e.elite?0.15:0.10),life:5,isBossBullet:false});
+          const speed=e.elite?245:225;
+          eBullets.push({x:e.x,y:e.y,vx:Math.cos(aa)*speed,vy:Math.sin(aa)*speed,r:e.elite?12:10,dmg:player.maxHp*(e.elite?0.15:0.10),life:5.5,isBossBullet:false,enemyShot:true});
+          rings.push({x:e.x,y:e.y,maxR:e.elite?34:28,life:0.20,t:0.20,color:'#c45cff'});
         }
+        burst(e.x,e.y,4,'#c45cff',120);
       }
     }else{
       // 近战怪走到城墙前，被墙挡住后攻击；高速怪天然可以超车
       const stopY=CASTLE_FRONT_Y-e.r;
       if(e.y<stopY) e.y+=e.speed*slowMul*dt;
-      if(e.y>=stopY){
+      // 近战怪进入主角警戒距离后优先攻击主角；主角不在附近才继续压墙。
+      const playerDist = Math.hypot(e.x-player.x, e.y-player.y);
+      if(!playerDead && playerDist <= e.r + player.r + 18){
+        e.wallAtkCd-=dt;
+        if(e.wallAtkCd<=0){
+          e.wallAtkCd=e.elite?1.25:1.6;
+          damagePlayer(e.dmg || 5);
+          e.hitFlash=1;
+        }
+      } else if(e.y>=stopY){
         e.y=stopY;
         e.wallAtkCd-=dt;
         if(e.wallAtkCd<=0){
           e.wallAtkCd=e.elite?1.25:1.6;
-          damageCastle(5);
+          damageCastle(e.dmg || 5);
         }
       }
     }
     e.angle=Math.PI/2;
+  }
+
+  // Boss4 地面预警：倒计时结束后结算伤害，并用闪烁圈提示玩家走位。
+  for(let i=bossWarnings.length-1;i>=0;i--){
+    const w=bossWarnings[i];
+    w.t-=dt;
+    if(w.t<=0){
+      if(!playerDead && Math.hypot(player.x-w.x,player.y-w.y)<=w.r){
+        damagePlayer(w.damage);
+      }
+      burst(w.x,w.y,24,'#ff6b3c',340);
+      rings.push({x:w.x,y:w.y,maxR:w.r,life:0.55,t:0.55,color:'#ff5b5b'});
+      bossWarnings.splice(i,1);
+    }
   }
 
   for(let i = eBullets.length - 1; i >= 0; i--){
@@ -5116,7 +5552,7 @@ function update(dt){
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
 
     // ★ Boss 子弹裂变
-    if(b.splitTimer !== undefined && b.splitTimer > 0){
+    if(b.canSplit && b.splitTimer !== undefined && b.splitTimer > 0){
       b.splitTimer -= dt;
       if(b.splitTimer <= 0){
         const count  = b.splitCount  || 7;
@@ -5132,7 +5568,7 @@ function update(dt){
             vy: Math.sin(a) * spd,
             r: 9,
             dmg: b.dmg,
-            life: 3, isBossBullet: true
+            life: 3, isBossBullet: true, canSplit: false
           });
         }
         burst(b.x, b.y, 14, '#ff8a3c', 280);
@@ -5206,18 +5642,7 @@ function update(dt){
           chooseBuff(null);
         }
       }
-      if(bossPhase && bossEnemy && !bossEnemy.dead){
-        bossSummonTimer -= dt;
-        if(bossSummonTimer <= 0){
-          bossSummonTimer = 4.5;
-          const count = bossEnemy.hp / bossEnemy.maxHp < 0.5 ? 3 : 2;
-          for(let i=0;i<count;i++){
-            const t = i % 2 === 0 ? 'runner' : 'zombie';
-            spawnEnemy(t, WORLD.w/2 + rand(-120,120), CASTLE_FRONT_Y - rand(80,160));
-          }
-          banner={text:'BOSS 召来援军！',life:1.0};
-        }
-      }
+      // Boss 特殊行为统一由敌人 AI 处理，避免旧补怪逻辑在城墙附近重复生成。
     }
   }
   // ============ 无尽模式 ============
@@ -6020,34 +6445,49 @@ function computeCatBroTarget(idx, total, px, py, facing){
 }
 
 // ================= 猫小弟 =================
-function initCatBro(skills){
-  const idx=catBros.length;
+function initCatBro(cfg, idx){
   const slots=[
-    {x:72,y:990},
-    {x:WORLD.w/2,y:995},
-    {x:WORLD.w-72,y:990}
+    {x:92,y:1000},
+    {x:W/2,y:1000},
+    {x:W-92,y:1000}
   ];
   const slot=slots[idx%slots.length];
+  const spriteKey = idx===1 ? 'catbro2' : 'catbro';
   const bro={
-    spriteKey: idx===1 ? 'catbro2' : 'catbro', r:20, x:slot.x, y:slot.y,
-    facing:-Math.PI/2, skills:['catfood'], slotIndex:idx, fireCd:0.2+idx*0.15,
-    bubble:{text:'',life:0,maxLife:2.2}, speakCd:0
+    id:cfg.id, name:cfg.name, skill:cfg.skill, config:cfg,
+    spriteKey, r:20, x:slot.x, y:slot.y,
+    facing:-Math.PI/2, skills:['catfood'], slotIndex:idx,
+    fireCd:1.10 + idx*0.18,
+    bubble:{text:'',life:0,maxLife:2.2}, speakCd:0,
+    orbAngle:0, laserFx:null
   };
   catBros.push(bro);
 }
 function catBroFindTarget(bro){
-  let best=null, bestD=Infinity;
-  const near=[];
+  let best=null,bestD=Infinity;
+  const maxRange = (bro.config && bro.config.id==='white') ? 1800 : Infinity;
+  // 优先墙边敌人，其次最近敌人；符合“先守墙”的定位。
   for(const e of enemies){
-    if(e.dead || e.isBoss) continue;
+    if(e.dead) continue;
     const d=Math.hypot(e.x-bro.x,e.y-bro.y);
-    if(e.y>=CASTLE_FRONT_Y-220) near.push({e,d});
+    if(d>maxRange) continue;
+    const wallPriority = e.y > CASTLE_FRONT_Y-180 ? -100000 : 0;
+    const score=d+wallPriority;
+    if(score<bestD){bestD=score;best=e;}
   }
-  const pool=near.length?near:enemies.filter(e=>!e.dead && !e.isBoss).map(e=>({e,d:Math.hypot(e.x-bro.x,e.y-bro.y)}));
-  for(const it of pool){ if(it.d<bestD){bestD=it.d;best=it.e;} }
-  // Boss 是唯一目标时允许猫小弟继续攻击 Boss
   if(!best && bossEnemy && !bossEnemy.dead) best=bossEnemy;
   return best;
+}
+function fireCatBroProjectile(bro,target,angle,offset=0){
+  const cfg=bro.config;
+  const speed=650;
+  const x=bro.x + Math.cos(angle)*offset;
+  const y=bro.y + Math.sin(angle)*offset - 18;
+  const b={x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:7,
+    dmg:cfg.dmg,life:2.6,pierce:cfg.skill==='穿透'?3:1,hitSet:null,fromCatBro:true,
+    homing:cfg.skill==='追踪',targetId:target?target.id:null,homingTimer:0,
+    broSkill:cfg.skill, broId:cfg.id};
+  bullets.push(b);
 }
 function updateCatBro(dt){
   if(!player || state!=='playing') return;
@@ -6058,10 +6498,19 @@ function updateCatBro(dt){
       const target=catBroFindTarget(bro);
       if(target){
         const a=Math.atan2(target.y-bro.y,target.x-bro.x);
-        bullets.push({x:bro.x,y:bro.y-18,vx:Math.cos(a)*650,vy:Math.sin(a)*650,r:7,dmg:11,life:2.4,pierce:1,hitSet:null,fromCatBro:true});
-        bro.fireCd=0.58;
-        burst(bro.x,bro.y,3,'#f5d36a',100);
-      } else bro.fireCd=0.25;
+        const skill=bro.config.skill;
+        if(skill==='三连射' || skill==='连发'){
+          for(let k=-1;k<=1;k++) fireCatBroProjectile(bro,target,a+k*0.12,k*10);
+        } else if(skill==='双发'){
+          fireCatBroProjectile(bro,target,a,-8); fireCatBroProjectile(bro,target,a,8);
+        } else {
+          fireCatBroProjectile(bro,target,a,0);
+        }
+        bro.facing=a;
+        if(Math.random()<0.12) bro.bubble.text=bro.name+'！';
+        bro.bubble.life=0.9;
+      }
+      bro.fireCd=bro.config.rate;
     }
   }
 }
@@ -6149,110 +6598,6 @@ function wrapTextSimple(text, maxWidth){
   return lines;
 }
 
-function drawCatBroSelect(){
-  ctx.fillStyle = 'rgba(0,0,0,0.82)';
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  ctx.font = 'bold 40px "Microsoft YaHei",sans-serif';
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  const joinTitle = (catBroSpawnCount >= 2) ? '又一个猫小弟加入了！' : '猫小弟加入了！';
-  ctx.strokeText(joinTitle, W/2, 140);
-  const tg = ctx.createLinearGradient(0, 110, 0, 170);
-  tg.addColorStop(0, '#fff5c0');
-  tg.addColorStop(1, '#ffd24a');
-  ctx.fillStyle = tg;
-  ctx.fillText(joinTitle, W/2, 140);
-
-  drawUIText('选择 1~2 个技能传授给它', W/2, 190, 'body', { size: 22 });
-  drawUIText('已选：' + catBroSelectedSkills.length + ' / 2', W/2, 224, 'success', { size: 19 });
-
-  const skills = ['can','orb','laser','missile','airstrike'].filter(s =>
-    unlockedWeapons[s] && catBroTakenSkills.indexOf(s) < 0
-  );
-  const n = skills.length;
-  const CW = 150;
-  const CH = 200;
-  const GAP = 14;
-  const totalW = n * CW + (n - 1) * GAP;
-  const sx = (W - totalW) / 2;
-  const sy = H / 2 - CH / 2 - 20;
-
-  catBroCards = [];
-
-  for(let i = 0; i < n; i++){
-    const s = skills[i];
-    const info = CATBRO_SKILL_INFO[s];
-    const x = sx + i * (CW + GAP);
-    const y = sy;
-    const selected = catBroSelectedSkills.indexOf(s) >= 0;
-
-    catBroCards.push({ x, y, w: CW, h: CH, skill: s });
-
-    rr(x, y, CW, CH, 14);
-    const grd = ctx.createLinearGradient(x, y, x, y + CH);
-    if(selected){
-      grd.addColorStop(0, 'rgba(255, 245, 220, 0.98)');
-      grd.addColorStop(1, 'rgba(255, 220, 170, 0.98)');
-    } else {
-      grd.addColorStop(0, 'rgba(240, 240, 240, 0.92)');
-      grd.addColorStop(1, 'rgba(210, 210, 215, 0.92)');
-    }
-    ctx.fillStyle = grd;
-    ctx.fill();
-
-    ctx.strokeStyle = selected ? '#ffb84a' : 'rgba(140,160,150,0.7)';
-    ctx.lineWidth = selected ? 4 : 2;
-    rr(x, y, CW, CH, 14);
-    ctx.stroke();
-
-    const icx = x + CW / 2;
-    const icy = y + 70;
-    UI.drawFrame(ctx, icx - 36, icy - 36, 72, 72, 'skill_frame');
-    drawBuffIcon(info.icon, icx, icy, 48, info.color);
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 24px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = info.color;
-    ctx.fillText(info.name, icx, y + 142);
-
-    ctx.font = '16px "Microsoft YaHei",sans-serif';
-    ctx.fillStyle = '#4a5a52';
-    const lines = wrapTextSimple(info.desc, CW - 20);
-    let ly = y + 172;
-    for(const ln of lines){
-      ctx.fillText(ln, icx, ly);
-      ly += 22;
-    }
-
-    if(selected){
-      const bx = x + CW - 18;
-      const by = y + 18;
-      ctx.fillStyle = '#ffb84a';
-      ctx.beginPath();
-      ctx.arc(bx, by, 14, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(bx - 6, by + 1);
-      ctx.lineTo(bx - 1, by + 6);
-      ctx.lineTo(bx + 7, by - 5);
-      ctx.stroke();
-    }
-  }
-
-  const cb = CATBRO_CONFIRM_BTN;
-  const canConfirm = catBroSelectedSkills.length >= 1;
-  const bc = canConfirm ? '#7fe0a0' : 'rgba(120,140,130,0.7)';
-  const tc = canConfirm ? '#289858' : '#5a6a62';
-  drawAppButton(cb, '确 认 ▶', bc, tc, { fontSize: 28, pulse: canConfirm });
-}
-
 // ================= 全屏轰炸 =================
 function doAirstrike(){
   const targets = [];
@@ -6312,7 +6657,7 @@ function explodeAirstrike(b){
 
 function updateAirstrike(dt){
   // 计时并自动释放（解锁即触发）
-  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
+  if(unlockedWeapons.airstrike){
     airstrikeTimer += dt;
     if(airstrikeTimer >= player.airstrikeCD){
       airstrikeTimer = 0;
@@ -6388,7 +6733,7 @@ function drawSkillIcons(){
   const skills = [];
 
   // ===== 激光 =====
-  if(unlockedWeapons.laser && catBroTakenSkills.indexOf('laser') < 0){
+  if(unlockedWeapons.laser){
     const cdMax = player.laserCooldownMax || LASER_COOLDOWN_MAX;
     const cdP = laser.active ? 0 : (laserCooldown > 0 ? 1 - laserCooldown / cdMax : 1);
     skills.push({
@@ -6403,7 +6748,7 @@ function drawSkillIcons(){
   }
 
   // ===== 导弹 =====
-  if(unlockedWeapons.missile && catBroTakenSkills.indexOf('missile') < 0){
+  if(unlockedWeapons.missile){
     const cdMax = player.missileCooldownMax || 5;
     const cdP = player.missileCooldown > 0 ? 1 - player.missileCooldown / cdMax : 1;
     skills.push({
@@ -6418,7 +6763,7 @@ function drawSkillIcons(){
   }
 
   // ===== 毛球 =====
-  if(unlockedWeapons.orb && catBroTakenSkills.indexOf('orb') < 0){
+  if(unlockedWeapons.orb){
     let cdP, remain, label = null;
     if(player.orbActiveTimer > 0){
       cdP = 1;
@@ -6443,7 +6788,7 @@ function drawSkillIcons(){
   }
 
   // ===== 罐头 =====
-  if(unlockedWeapons.can && catBroTakenSkills.indexOf('can') < 0){
+  if(unlockedWeapons.can){
     const cdP = Math.min(1, canAutoTimer / CAN_AUTO_INTERVAL);
     skills.push({
       icon: 'canpower',
@@ -6457,7 +6802,7 @@ function drawSkillIcons(){
   }
 
   // ===== 空袭 =====
-  if(unlockedWeapons.airstrike && catBroTakenSkills.indexOf('airstrike') < 0){
+  if(unlockedWeapons.airstrike){
     const cdTotal = player.airstrikeCD || 6;
     const cdP = Math.min(1, airstrikeTimer / cdTotal);
     skills.push({
@@ -6519,7 +6864,8 @@ function drawLaser(){
   if(!laser.active || !player) return;
 
   const L  = player.laserRadius;
-  const ox = player.x;
+  const doubleOff = player.laserDouble ? 58 * (player.laserWidthMult || 1) : 0;
+  const ox = player.x - doubleOff;
   const oy = player.y - player.r * 0.6;
 
   const c1 = '120, 240, 255';
@@ -6650,6 +6996,29 @@ function drawLaser(){
     ctx.beginPath();
     ctx.arc(e.x, e.y, hitR, 0, TAU);
     ctx.fill();
+  }
+
+  if(player.laserDouble){
+    const ox2 = player.x + doubleOff;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(ox2, oy);
+    ctx.rotate(-Math.PI/2);
+    const outer2 = 42 * wScale * pulse;
+    const g2 = ctx.createLinearGradient(0, -outer2, 0, outer2);
+    g2.addColorStop(0, 'rgba(' + c1 + ',0)');
+    g2.addColorStop(0.5, 'rgba(' + c1 + ',0.48)');
+    g2.addColorStop(1, 'rgba(' + c1 + ',0)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, -outer2, L, outer2 * 2);
+    const core2 = 6 * wScale * pulse;
+    const cg2 = ctx.createLinearGradient(0, -core2, 0, core2);
+    cg2.addColorStop(0, 'rgba(255,255,255,0.72)');
+    cg2.addColorStop(0.5, 'rgba(255,255,255,1)');
+    cg2.addColorStop(1, 'rgba(255,255,255,0.72)');
+    ctx.fillStyle = cg2;
+    ctx.fillRect(0, -core2, L, core2 * 2);
+    ctx.restore();
   }
 
   ctx.globalAlpha = 1;
@@ -7251,6 +7620,84 @@ function drawHUD(){
   }
 }
 
+// ================= 全局底部导览 =================
+const GLOBAL_NAV_H = 118;
+const GLOBAL_NAV_Y = H - GLOBAL_NAV_H;
+const GLOBAL_NAV_ICONS = ['battle','task','home','bag','shop'];
+const GLOBAL_NAV_STATES = new Set(['menu','stagePrep','stageSelect','weaponSelect','home','placeholder','tasks','skillTree','catbroCollection','catselect','help','leaderboard']);
+
+function getActiveNavId(){
+  if(state==='stagePrep' || state==='stageSelect' || state==='weaponSelect' || state==='catbroCollection' || state==='catselect') return 'stages';
+  if(state==='tasks' || state==='skillTree') return 'tasks';
+  if(state==='home') return 'home';
+  if(state==='placeholder') return placeholderFrom;
+  return null;
+}
+function drawNavIcon(id,cx,cy,active){
+  const col=active?'#fff1b8':'#a9bacb';
+  ctx.save(); ctx.translate(cx,cy); ctx.scale(active?1.14:0.92,active?1.14:0.92); ctx.translate(-cx,-cy); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=active?4.3:3.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(id==='battle'){
+    ctx.beginPath(); ctx.moveTo(cx-12,cy+14); ctx.lineTo(cx+14,cy-12); ctx.moveTo(cx-7,cy+10); ctx.lineTo(cx+4,cy+21); ctx.moveTo(cx-2,cy+3); ctx.lineTo(cx-12,cy-7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+2,cy-10); ctx.lineTo(cx+13,cy+1); ctx.stroke();
+  } else if(id==='task'){
+    rr(cx-15,cy-18,30,36,6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-8,cy-7); ctx.lineTo(cx-2,cy-1); ctx.lineTo(cx+9,cy-12); ctx.moveTo(cx-8,cy+8); ctx.lineTo(cx+9,cy+8); ctx.stroke();
+  } else if(id==='home'){
+    ctx.beginPath(); ctx.moveTo(cx-17,cy-1); ctx.lineTo(cx,cy-17); ctx.lineTo(cx+17,cy-1); ctx.moveTo(cx-12,cy-4); ctx.lineTo(cx-12,cy+16); ctx.lineTo(cx+12,cy+16); ctx.lineTo(cx+12,cy-4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-4,cy+16); ctx.lineTo(cx-4,cy+6); ctx.lineTo(cx+4,cy+6); ctx.lineTo(cx+4,cy+16); ctx.stroke();
+  } else if(id==='bag'){
+    rr(cx-17,cy-9,34,29,7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy-9,9,Math.PI,0,false); ctx.stroke();
+  } else {
+    rr(cx-18,cy-13,36,32,6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-11,cy-5); ctx.lineTo(cx+11,cy-5); ctx.moveTo(cx-11,cy+3); ctx.lineTo(cx+8,cy+3); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawGlobalNav(){
+  if(!GLOBAL_NAV_STATES.has(state)) return;
+  mainNavRects=[];
+  const activeId=getActiveNavId();
+  ctx.save();
+  const g=ctx.createLinearGradient(0,GLOBAL_NAV_Y,0,H);
+  g.addColorStop(0,'rgba(7,17,28,.94)'); g.addColorStop(1,'rgba(4,9,15,.99)');
+  ctx.fillStyle=g; ctx.fillRect(0,GLOBAL_NAV_Y,W,GLOBAL_NAV_H);
+  ctx.strokeStyle='rgba(153,192,218,.24)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,GLOBAL_NAV_Y); ctx.lineTo(W,GLOBAL_NAV_Y); ctx.stroke();
+  const w=W/MAIN_NAV.length;
+  MAIN_NAV.forEach((n,i)=>{
+    const x=i*w, active=n.id===activeId;
+    const rx=x+7, ry=active?GLOBAL_NAV_Y+4:GLOBAL_NAV_Y+12, rw=w-14, rh=active?GLOBAL_NAV_H-10:GLOBAL_NAV_H-22;
+    if(active){
+      rr(rx,ry,rw,rh,22);
+      const ag=ctx.createLinearGradient(x,ry,x+w,ry+rh);
+      ag.addColorStop(0,'rgba(96,164,196,.46)'); ag.addColorStop(1,'rgba(50,102,125,.24)');
+      ctx.fillStyle=ag; ctx.fill();
+      ctx.strokeStyle='rgba(176,235,249,.72)'; ctx.lineWidth=2.2; rr(rx,ry,rw,rh,22); ctx.stroke();
+      ctx.fillStyle='#76f0da'; ctx.beginPath(); ctx.arc(x+w/2,ry+10,5,0,TAU); ctx.fill();
+    } else {
+      rr(rx,ry,rw,rh,18); ctx.fillStyle='rgba(255,255,255,.018)'; ctx.fill();
+    }
+    drawNavIcon(GLOBAL_NAV_ICONS[i],x+w/2,GLOBAL_NAV_Y+(active?47:50),active);
+    drawUIText(n.label,x+w/2,GLOBAL_NAV_Y+(active?91:95),active?'body':'muted',{size:active?19:16,strokeWidth:active?3:2.4});
+    mainNavRects.push({x:x+1,y:GLOBAL_NAV_Y+1,w:w-2,h:GLOBAL_NAV_H-2,id:n.id});
+  });
+  ctx.restore();
+}
+function handleGlobalNav(p){
+  if(!GLOBAL_NAV_STATES.has(state)) return false;
+  if(state==='menu' && mainResetConfirm) return false;
+  for(const r of mainNavRects){
+    if(!hitRect(r,p)) continue;
+    if(r.id==='stages'){ currentPrepStage=Math.max(1,Math.min(TOTAL_STAGES,stageProgress.unlockedMax||1)); state='stagePrep'; }
+    else if(r.id==='tasks'){ taskScrollY=0; state='tasks'; }
+    else if(r.id==='home'){ state='home'; }
+    else { state='placeholder'; placeholderFrom=r.id; }
+    last=performance.now();
+    return true;
+  }
+  return false;
+}
+
 // ================= 主菜单 =================
 function drawMenuButton(b, text, borderColor, textColor, idx){
   drawAppButton(b, text, borderColor, textColor, {
@@ -7760,23 +8207,27 @@ function drawButtonLabel(text, cx, cy, size){
 }
 
 function drawAppButton(b, text, borderColor, textColor, opts){
-  // 优先用新空底板
-  const plateKey = pickPlateKey(borderColor);
-  const spr = SPRITES[plateKey];
-  if(spr && spr.loaded && spr.img){
-    drawStyledButton(spr.img, b.x - b.w/2, b.y - b.h/2, b.w, b.h);
-
-    const fontSize = (opts && opts.fontSize) || 24;
-    drawButtonLabel(text, b.x, b.y, fontSize);
-    return;
-  }
-
-  // 兜底：老九宫格按钮
-  let btnKey = 'btn_yellow';
-  if(borderColor === '#7fb8ff') btnKey = 'btn_blue';
-  else if(borderColor === '#ff8fb0' || borderColor === '#c84870') btnKey = 'btn_red';
-  else if(borderColor === '#7fe0a0') btnKey = 'btn_green';
-  UI.drawButton(ctx, b.x - b.w/2, b.y - b.h/2, b.w, b.h, text, btnKey, opts && opts.fontSize || 24);
+  opts = opts || {};
+  const fontSize = opts.fontSize || 24;
+  const disabled = opts.disabled === true;
+  const x = b.x - b.w/2, y = b.y - b.h/2;
+  const c = borderColor || '#7fd8ff';
+  let top='rgba(34,50,66,.98)', bottom='rgba(19,29,40,.98)';
+  if(c === '#7fe0a0' || c === '#289858'){ top='rgba(50,110,88,.98)'; bottom='rgba(24,68,54,.98)'; }
+  else if(c === '#ff8fb0' || c === '#c84870' || c === '#ff8a8a' || c === '#b83d3d'){ top='rgba(116,55,72,.98)'; bottom='rgba(67,30,42,.98)'; }
+  else if(c === '#ffd24a' || c === '#c87820'){ top='rgba(119,91,32,.98)'; bottom='rgba(70,52,18,.98)'; }
+  else if(c === '#7fb8ff' || c === '#3878b8'){ top='rgba(47,82,112,.98)'; bottom='rgba(25,46,67,.98)'; }
+  const grd=ctx.createLinearGradient(x,y,x,y+b.h);
+  grd.addColorStop(0,top); grd.addColorStop(1,bottom);
+  ctx.save();
+  ctx.globalAlpha=disabled?0.5:1;
+  ctx.shadowColor='rgba(0,0,0,.28)'; ctx.shadowBlur=12; ctx.shadowOffsetY=5;
+  rr(x,y,b.w,b.h,18); ctx.fillStyle=grd; ctx.fill();
+  ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+  ctx.strokeStyle=disabled?'rgba(160,170,180,.3)':c; ctx.lineWidth=2.5; rr(x,y,b.w,b.h,18); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; rr(x+3,y+3,b.w-6,b.h*0.42,14); ctx.stroke();
+  drawUIText(text,b.x,b.y+fontSize*0.30,disabled?'muted':'body',{size:fontSize,strokeWidth:Math.max(2,fontSize*0.10)});
+  ctx.restore();
 }
 
 // 统一可爱标题
@@ -8049,174 +8500,157 @@ function drawStageCard(x, y, w, h, num, stars, unlocked){
 }
 
 // ================= 技能树界面 =================
+function drawTasksScreen(){
+  drawAppBackground();
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.91});
+  drawCurrencyBar(34);
+  drawAppTitle('任 务',W/2,88,40);
+  const earned=getTotalEarnedStars(), points=getAvailableSkillPoints(), claimable=getClaimableTaskCount();
+
+  rr(40,166,W-80,94,20); ctx.fillStyle='rgba(18,31,43,.96)'; ctx.fill(); ctx.strokeStyle='rgba(127,216,255,.23)'; ctx.lineWidth=1.8; rr(40,166,W-80,94,20); ctx.stroke();
+  drawUIText('累计星星',62,204,'muted',{size:15,align:'left',strokeWidth:1.8}); drawUIText(earned+' ★',62,236,'accent',{size:27,align:'left',strokeWidth:2.8});
+  drawUIText('可用技能点',W/2,204,'muted',{size:15,align:'center',strokeWidth:1.8}); drawUIText(String(points),W/2,236,'success',{size:28,align:'center',strokeWidth:2.8});
+  drawUIText(claimable?('待领取 '+claimable+' 项'):'完成任务后手动领取',W-62,220,claimable?'accent':'muted',{size:14,align:'right',strokeWidth:2});
+
+  rr(40,284,W-80,106,20); const sg=ctx.createLinearGradient(40,284,W-40,390); sg.addColorStop(0,'rgba(56,87,102,.98)'); sg.addColorStop(1,'rgba(22,38,51,.99)'); ctx.fillStyle=sg; ctx.fill(); ctx.strokeStyle='rgba(142,215,237,.35)'; ctx.lineWidth=2; rr(40,284,W-80,106,20); ctx.stroke();
+  drawUIText('永久技能树',66,324,'body',{size:23,align:'left',strokeWidth:2.8});
+  drawUIText('任务获得技能点，用于强化主角的基础能力',66,358,'muted',{size:14,align:'left',strokeWidth:1.8});
+  drawUIText('进入  ›',W-62,342,'accent',{size:19,align:'right',strokeWidth:2.2});
+  taskSkillTreeEntryRect={x:40,y:284,w:W-80,h:106};
+
+  drawSectionLabel('任务列表',40,438,'#7fd8ff');
+  taskRects=[];
+  const cols=2,cardW=310,cardH=150,gapX=20,gapY=20,startY=468,startX=40;
+  for(let i=0;i<TASKS.length;i++){
+    const t=TASKS[i],col=i%2,row=Math.floor(i/2),x=startX+col*(cardW+gapX),y=startY+row*(cardH+gapY)-taskScrollY;
+    if(y>GLOBAL_NAV_Y-12 || y+cardH<455) continue;
+    const progress=Math.min(t.target,getTaskProgress(t)),complete=progress>=t.target,claimed=isTaskClaimed(t),canClaim=complete&&!claimed;
+    rr(x,y,cardW,cardH,20); const g=ctx.createLinearGradient(x,y,x,y+cardH); g.addColorStop(0,claimed?'rgba(31,43,53,.92)':canClaim?'rgba(71,59,28,.98)':'rgba(19,32,45,.96)'); g.addColorStop(1,'rgba(12,22,31,.99)'); ctx.fillStyle=g; ctx.fill(); ctx.strokeStyle=canClaim?'#ffd24a':claimed?'rgba(125,145,160,.25)':'rgba(115,170,195,.20)'; ctx.lineWidth=canClaim?2.6:1.4; rr(x,y,cardW,cardH,20); ctx.stroke();
+    drawUIText(t.title,x+20,y+34,claimed?'muted':'body',{size:20,align:'left',strokeWidth:2.4});
+    drawUIText('+'+t.reward+' 点',x+cardW-20,y+34,'success',{size:15,align:'right',strokeWidth:1.8});
+    drawUIText(t.desc,x+20,y+61,'muted',{size:13,align:'left',strokeWidth:1.7});
+    const bx=x+20,by=y+83,bw=cardW-40,bh=13; rr(bx,by,bw,bh,7); ctx.fillStyle='rgba(0,0,0,.38)'; ctx.fill(); rr(bx,by,bw*(progress/t.target),bh,7); ctx.fillStyle=complete?'#7fe0a0':'#5ba9d0'; ctx.fill();
+    drawUIText(progress+' / '+t.target,x+20,y+122,'muted',{size:12,align:'left',strokeWidth:1.5});
+    const br={x:x+cardW-122,y:y+117,w:105,h:36,task:t,claimable:canClaim,complete}; taskRects.push(br);
+    drawAppButton({x:br.x+br.w/2,y:br.y+br.h/2,w:br.w,h:br.h},claimed?'已领取':canClaim?'领取 +'+t.reward:'未完成',claimed?'#596674':canClaim?'#ffd24a':'#344250','#fff',{fontSize:13,disabled:!canClaim&&!claimed,pulse:canClaim});
+  }
+  drawGlobalNav();
+}
+
+
+function drawSkillIconForNode(node,cx,cy,size,color){
+  const branch=SKILL_BRANCHES.find(b=>b.key===node.branch);
+  const col=color || (branch?branch.color:'#7fd8ff');
+  ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.arc(cx,cy,size,0,TAU); ctx.fillStyle='rgba(0,0,0,.18)'; ctx.fill(); ctx.stroke();
+  const icon=node.id;
+  if(icon.includes('damage') || icon.includes('crit')){
+    ctx.beginPath(); ctx.moveTo(cx-7,cy+9); ctx.lineTo(cx+4,cy-2); ctx.lineTo(cx-1,cy-2); ctx.lineTo(cx+8,cy-12); ctx.stroke();
+  } else if(icon.includes('rate')){
+    ctx.beginPath(); ctx.arc(cx,cy,size*.05,0,TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy-10); ctx.moveTo(cx,cy); ctx.lineTo(cx+9,cy+5); ctx.stroke();
+  } else if(icon.includes('speed')){
+    ctx.beginPath(); ctx.moveTo(cx-12,cy); ctx.lineTo(cx+10,cy); ctx.moveTo(cx-5,cy-7); ctx.lineTo(cx+10,cy); ctx.lineTo(cx-5,cy+7); ctx.stroke();
+  } else if(icon.includes('range')){
+    ctx.beginPath(); ctx.arc(cx,cy,size*.48,0,TAU); ctx.moveTo(cx,cy); ctx.lineTo(cx+10,cy-10); ctx.stroke();
+  } else if(icon.includes('hp')){
+    ctx.beginPath(); ctx.moveTo(cx,cy+12); ctx.bezierCurveTo(cx-18,cy, cx-9,cy-11, cx,cy-4); ctx.bezierCurveTo(cx+9,cy-11, cx+18,cy, cx,cy+12); ctx.stroke();
+  } else if(icon.includes('wall') || icon.includes('guard')){
+    ctx.beginPath(); rr(cx-11,cy-11,22,22,4); ctx.stroke(); ctx.moveTo(cx-5,cy-11); ctx.lineTo(cx-5,cy+11); ctx.moveTo(cx+5,cy-11); ctx.lineTo(cx+5,cy+11); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(cx,cy,size*.3,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawSkillTreeScreen(){
   drawAppBackground();
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.93});
+  drawCurrencyBar(34);
+  drawAppTitle('永久技能树',W/2,88,40);
+  const stars=getTotalEarnedStars(), points=getAvailableSkillPoints();
 
-  const boxW = W - 40;
-  const boxH = 1100;
-  const boxX = 20;
-  const boxY = (H - boxH) / 2;
+  rr(40,158,W-80,86,20); ctx.fillStyle='rgba(18,31,43,.97)'; ctx.fill(); ctx.strokeStyle='rgba(127,216,255,.23)'; ctx.lineWidth=1.8; rr(40,158,W-80,86,20); ctx.stroke();
+  drawUIText('累计 '+stars+' ★',62,207,'accent',{size:22,align:'left',strokeWidth:2.4});
+  drawUIText('可用技能点 '+points,W-190,207,'success',{size:22,align:'right',strokeWidth:2.4});
+  skillResetBtn={x:W-86,y:201,w:120,h:42};
+  drawAppButton(skillResetBtn,'重置','#ff8fb0','#fff',{fontSize:15});
+  drawUIText('每个技能点击后查看详情，再决定是否学习',W/2,276,'muted',{size:15,strokeWidth:1.8});
 
-  drawDialogPanel(boxX, boxY, boxW, boxH, '技 能 树', {
-    titleH: 76, titleSize: 32, noClose: true
+  const listX=40, listY=310, listW=W-80, viewH=GLOBAL_NAV_Y-listY-18;
+  const cardH=188, gap=16;
+  const nodes=SKILL_TREE.slice().sort((a,b)=>a.tier-b.tier || SKILL_BRANCHES.findIndex(x=>x.key===a.branch)-SKILL_BRANCHES.findIndex(x=>x.key===b.branch));
+  const contentH=nodes.length*cardH+(nodes.length-1)*gap;
+  skillScrollMaxY=Math.max(0,contentH-viewH);
+  skillScrollY=clamp(skillScrollY,0,skillScrollMaxY);
+  ctx.save(); ctx.beginPath(); rr(listX,listY,listW,viewH,24); ctx.clip();
+  skillNodeRects=[];
+  nodes.forEach((n,i)=>{
+    const y=listY+i*(cardH+gap)-skillScrollY;
+    if(y+cardH<listY-20 || y>listY+viewH+20) return;
+    const branch=SKILL_BRANCHES.find(b=>b.key===n.branch);
+    const reason=getSkillLockReason(n), owned=reason==='owned', can=reason==='ok';
+    rr(listX,y,listW,cardH,24);
+    const g=ctx.createLinearGradient(listX,y,listX,y+cardH);
+    g.addColorStop(0,owned?'rgba(42,67,62,.98)':can?'rgba(62,56,30,.98)':'rgba(20,34,46,.98)');
+    g.addColorStop(1,'rgba(10,21,30,.99)'); ctx.fillStyle=g; ctx.fill();
+    ctx.strokeStyle=owned?branch.color:can?'#ffd24a':'rgba(125,160,180,.20)'; ctx.lineWidth=owned?2.8:can?2.4:1.4; rr(listX,y,listW,cardH,24); ctx.stroke();
+
+    drawSkillIconForNode(n,listX+66,y+72,35,branch.color);
+    drawUIText(branch.name,listX+116,y+36,'muted',{size:14,align:'left',strokeWidth:1.7});
+    drawUIText(n.id.replaceAll('_',' '),listX+116,y+70,'body',{size:22,align:'left',strokeWidth:2.6});
+    drawUIText(n.desc,listX+116,y+101,'muted',{size:15,align:'left',strokeWidth:1.8});
+
+    const status=owned?'已学习':reason==='stars'?('需 '+n.reqStars+' ★'):reason==='prev'?'需先学前置':('消耗 '+n.cost+' 点');
+    drawUIText(status,listX+116,y+139,owned?'success':can?'accent':'muted',{size:14,align:'left',strokeWidth:1.8});
+    drawUIText(can?'点击查看详情':owned?'已拥有':'点击查看解锁条件',listX+listW-24,y+38,can||owned?'accent':'muted',{size:12,align:'right',strokeWidth:1.6});
+    rr(listX+listW-150,y+105,124,48,14); ctx.fillStyle=can?'rgba(255,210,74,.12)':owned?'rgba(127,224,160,.08)':'rgba(255,255,255,.03)'; ctx.fill(); ctx.strokeStyle=can?'rgba(255,210,74,.45)':'rgba(255,255,255,.08)'; ctx.lineWidth=1.2; rr(listX+listW-150,y+105,124,48,14); ctx.stroke();
+    drawUIText(owned?'已学习':(n.reqStars+'★ / '+n.cost+'点'),listX+listW-88,y+136,owned?'success':reason==='stars'?'danger':'accent',{size:14,strokeWidth:1.8});
+    skillNodeRects.push({x:listX,y,w:listW,h:cardH,node:n});
   });
+  ctx.restore();
 
-  // ===== 星级显示 =====
-  const availStars = getAvailableStars();
-  const totalStars = getTotalEarnedStars();
-  drawUIText('⭐ ' + availStars + ' / ' + totalStars,
-             boxX + boxW - 30, boxY + 122, 'accent', {
-    size: 24, align: 'right',
-    glow: true, glowColor: 'rgba(255, 210, 74, 0.7)', glowSize: 12
-  });
-
-  // ===== 5 个分支 =====
-  const branchLabelX = boxX + 80;
-  const nodeStartX   = boxX + 200;
-  const nodeSpacing  = 112;
-  const nodeRadius   = 30;
-  const firstRowY    = boxY + 240;
-  const rowSpacing   = 150;
-
-  skillNodeRects = [];
-
-  for(let bi = 0; bi < SKILL_BRANCHES.length; bi++){
-    const br = SKILL_BRANCHES[bi];
-    const ry = firstRowY + bi * rowSpacing;
-
-    drawUIText(br.name, branchLabelX, ry, 'title', {
-      size: 24,
-      glow: true, glowColor: br.color, glowSize: 10,
-      strokeWidth: 4
-    });
-
-    const nodes = SKILL_TREE.filter(n => n.branch === br.key);
-    nodes.sort((a, b) => a.tier - b.tier);
-
-    // 连线
-    for(let i = 0; i < nodes.length - 1; i++){
-      const n1 = nodes[i];
-      const n2 = nodes[i + 1];
-      const x1 = nodeStartX + (n1.tier - 1) * nodeSpacing;
-      const x2 = nodeStartX + (n2.tier - 1) * nodeSpacing;
-      const u1 = !!skillTree[n1.id];
-      const u2 = !!skillTree[n2.id];
-
-      ctx.save();
-      ctx.strokeStyle = (u1 && u2) ? br.color : 'rgba(120, 140, 160, 0.35)';
-      ctx.lineWidth = (u1 && u2) ? 5 : 3;
-      if(!(u1 && u2)) ctx.setLineDash([6, 6]);
-      ctx.beginPath();
-      ctx.moveTo(x1 + nodeRadius, ry);
-      ctx.lineTo(x2 - nodeRadius, ry);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // 节点
-    for(let i = 0; i < nodes.length; i++){
-      const n = nodes[i];
-      const nx = nodeStartX + (n.tier - 1) * nodeSpacing;
-      const ny = ry;
-
-      const unlocked = !!skillTree[n.id];
-      const canUnlock = canUnlockSkill(n);
-
-      // 可点击光晕
-      if(canUnlock){
-        const pulse = 0.5 + Math.sin(gameTime * 4 + i) * 0.5;
-        ctx.save();
-        ctx.globalAlpha = 0.5 + pulse * 0.4;
-        ctx.fillStyle = 'rgba(255, 210, 74, 0.35)';
-        ctx.beginPath();
-        ctx.arc(nx, ny, nodeRadius + 8 + pulse * 4, 0, TAU);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // 圆底
-      ctx.save();
-      if(unlocked){
-        const grd = ctx.createRadialGradient(nx - 8, ny - 8, 4, nx, ny, nodeRadius);
-        grd.addColorStop(0, lighten(br.color, 0.3));
-        grd.addColorStop(1, br.color);
-        ctx.fillStyle = grd;
-      } else {
-        ctx.fillStyle = 'rgba(40, 52, 62, 0.92)';
-      }
-      ctx.beginPath();
-      ctx.arc(nx, ny, nodeRadius, 0, TAU);
-      ctx.fill();
-      ctx.restore();
-
-      // 边框
-      ctx.strokeStyle = unlocked
-        ? br.color
-        : (canUnlock ? '#ffd24a' : 'rgba(120, 140, 160, 0.5)');
-      ctx.lineWidth = unlocked ? 3 : (canUnlock ? 2.5 : 2);
-      ctx.beginPath();
-      ctx.arc(nx, ny, nodeRadius, 0, TAU);
-      ctx.stroke();
-
-      // 节点内文字
-      ctx.save();
-      ctx.font = 'bold 15px "Microsoft YaHei", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = unlocked ? '#1a2a3a' : (canUnlock ? '#ffd24a' : '#8a98a8');
-      ctx.fillText(n.label, nx, ny + 1);
-      ctx.restore();
-
-      // 底部标签：消耗 / 解锁条件
-      if(!unlocked){
-        const reason = getSkillLockReason(n);
-        let costText;
-        let costColor;
-
-        if(reason === 'stage'){
-          costText  = '需通关' + n.reqStage;
-          costColor = 'rgba(255, 140, 140, 0.9)';
-        } else if(n.cost === 0){
-          costText  = '免费';
-          costColor = canUnlock ? '#7fe0a0' : 'rgba(200, 220, 240, 0.7)';
-        } else {
-          costText  = n.cost + '⭐';
-          costColor = canUnlock ? '#ffd24a' : 'rgba(200, 220, 240, 0.7)';
-        }
-
-        ctx.save();
-        ctx.font = 'bold 13px "Microsoft YaHei", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = costColor;
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.strokeText(costText, nx, ny + nodeRadius + 16);
-        ctx.fillText(costText, nx, ny + nodeRadius + 16);
-        ctx.restore();
-      }
-
-      skillNodeRects.push({
-        x: nx - nodeRadius,
-        y: ny - nodeRadius,
-        w: nodeRadius * 2,
-        h: nodeRadius * 2,
-        node: n
-      });
-    }
+  // 滚动位置指示
+  if(skillScrollMaxY>0){
+    const trackX=W-24, trackY=listY+10, trackH=viewH-20;
+    rr(trackX,trackY,6,trackH,3); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fill();
+    const thumbH=Math.max(70,trackH*(viewH/contentH));
+    const thumbY=trackY+(trackH-thumbH)*(skillScrollY/skillScrollMaxY);
+    rr(trackX,thumbY,6,thumbH,3); ctx.fillStyle='rgba(127,216,255,.65)'; ctx.fill();
   }
 
-  // ===== 底部按钮 =====
-  const btnY = boxY + boxH - 70;
-  const resetBtn = { x: W/2 - 130, y: btnY, w: 200, h: 64 };
-  const backBtn  = { x: W/2 + 130, y: btnY, w: 200, h: 64 };
-
-  drawAppButton(resetBtn, '重 置', '#ff8fb0', '#c84870', { fontSize: 24 });
-  drawAppButton(backBtn,  '返 回', '#7fb8ff', '#3878b8', { fontSize: 24 });
-
-  skillResetBtn = resetBtn;
-  skillBackBtn  = backBtn;
+  if(skillDetailNode) drawSkillDetailModal(skillDetailNode);
+  drawGlobalNav();
 }
+
+function drawSkillDetailModal(node){
+  skillDetailCloseRect=null; skillDetailLearnRect=null;
+  drawAppOverlay(.78);
+  const boxW=620, boxH=500, x=(W-boxW)/2, y=Math.max(120,(GLOBAL_NAV_Y-boxH)/2);
+  rr(x,y,boxW,boxH,28);
+  const g=ctx.createLinearGradient(x,y,x,y+boxH); g.addColorStop(0,'rgba(24,39,53,.99)'); g.addColorStop(1,'rgba(9,19,28,.99)'); ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle='rgba(154,223,245,.46)'; ctx.lineWidth=2.4; rr(x,y,boxW,boxH,28); ctx.stroke();
+  const branch=SKILL_BRANCHES.find(b=>b.key===node.branch);
+  drawSkillIconForNode(node,x+76,y+88,40,branch.color);
+  drawUIText(branch.name,x+132,y+56,'muted',{size:15,align:'left',strokeWidth:1.8});
+  drawUIText(node.id.replaceAll('_',' '),x+132,y+94,'body',{size:28,align:'left',strokeWidth:3});
+  drawUIText('效果',x+42,y+158,'accent',{size:18,align:'left',strokeWidth:2.2});
+  drawUIText(node.desc,x+42,y+204,'body',{size:21,align:'left',strokeWidth:2.5});
+  drawUIText('解锁条件：累计 '+node.reqStars+' ★',x+42,y+260,'muted',{size:16,align:'left',strokeWidth:1.9});
+  drawUIText('学习消耗：'+node.cost+' 技能点',x+42,y+294,'muted',{size:16,align:'left',strokeWidth:1.9});
+  const reason=getSkillLockReason(node);
+  if(reason==='owned'){
+    drawUIText('这个技能已经学习',W/2,y+360,'success',{size:20,strokeWidth:2.4});
+  } else if(reason==='ok'){
+    skillDetailLearnRect={x:W/2-145,y:y+387,w:290,h:64};
+    drawAppButton({x:W/2,y:y+419,w:290,h:64},'学习技能','#7fe0a0','#fff',{fontSize:24,pulse:true});
+  } else {
+    let msg=reason==='stars'?('还需要 '+Math.max(0,node.reqStars-getTotalEarnedStars())+' 颗星星'):reason==='prev'?'请先学习前置技能':'技能点不足';
+    drawUIText(msg,W/2,y+374,'danger',{size:19,strokeWidth:2.2});
+  }
+  skillDetailCloseRect={x:W-108,y:y+24,w:64,h:52};
+  drawAppButton({x:W-76,y:y+50,w:64,h:52},'×','#ff8fb0','#fff',{fontSize:28});
+}
+
 
 function drawStageSelectScreen(){
   drawAppBackground();
@@ -8287,368 +8721,113 @@ function drawStageSelectScreen(){
 
 // ================= 关卡结算界面 =================
 function drawStageVictoryScreen(){
-  const info = stageVictoryInfo;
+  const info=stageVictoryInfo;
   if(!info) return;
-
-  const ease = 1 - Math.pow(1 - Math.max(0, stageVictoryAnimT), 3);
-
+  const ease=1-Math.pow(1-Math.max(0,Math.min(1,stageVictoryAnimT)),3);
   ctx.save();
-  ctx.globalAlpha = ease;
-
-  drawAppOverlay(0.88 * ease);
-
-  const boxW = W - 60;
-  const boxH = 620;
-  const boxX = (W - boxW) / 2;
-  const boxY = (H - boxH) / 2;
-
-  // ★ 整体缩放 + 上滑
-  const scale = 0.7 + ease * 0.3;
-  const offsetY = (1 - ease) * 40;
-
-  ctx.translate(W / 2, H / 2 + offsetY);
-  ctx.scale(scale, scale);
-  ctx.translate(-W / 2, -H / 2);
-
-  const titleText = info.isLast ? '全 部 通 关 ！' : ('第 ' + info.stageNum + ' 关 通 过');
-  drawDialogPanel(boxX, boxY, boxW, boxH, titleText, {
-    titleH: 80, titleSize: 32, noClose: true
-  });
-
-  // ===== 大星星（依次弹出） =====
-  const starSize = 110;
-  const starY = boxY + 200;
-  for(let i = 0; i < 3; i++){
-    // 每颗星延迟 0.15 秒弹出
-    const starDelay = 0.30 + i * 0.15;
-    const starP = Math.max(0, Math.min(1, (stageVictoryAnimT - starDelay) / 0.4));
-    const starEase = 1 - Math.pow(1 - starP, 3);
-
-    const sx = W/2 + (i - 1) * (starSize + 10);
-    const filled = i < info.stars;
-
-    ctx.save();
-    ctx.globalAlpha = starEase;
-    // 从 0.3 弹性放大到 1.0
-    const starScale = 0.3 + starEase * 0.7 + Math.sin(starP * Math.PI) * 0.15;
-    ctx.translate(sx, starY);
-    ctx.scale(starScale, starScale);
-    ctx.translate(-sx, -starY);
-
-    drawStarIcon(sx, starY, starSize * 0.5, null, filled);
-    ctx.restore();
+  drawAppOverlay(0.84*ease);
+  const boxW=Math.min(W-44,640), boxH=760;
+  const boxX=(W-boxW)/2, boxY=Math.max(28,(H-boxH)/2);
+  const pop=.95+.05*ease;
+  ctx.translate(W/2,boxY+boxH/2); ctx.scale(pop,pop); ctx.translate(-W/2,-(boxY+boxH/2));
+  rr(boxX,boxY,boxW,boxH,28);
+  const grd=ctx.createLinearGradient(0,boxY,0,boxY+boxH);
+  grd.addColorStop(0,'rgba(33,47,58,.99)'); grd.addColorStop(1,'rgba(16,24,32,.99)');
+  ctx.fillStyle=grd; ctx.fill();
+  ctx.strokeStyle='rgba(255,214,112,.72)'; ctx.lineWidth=3; rr(boxX,boxY,boxW,boxH,28); ctx.stroke();
+  drawUIText(info.isLast?'全部关卡通关！':'第 '+info.stageNum+' 关通关',W/2,boxY+74,'title',{size:34,strokeWidth:3.5,glow:true,glowColor:'rgba(255,210,74,.45)',glowSize:10});
+  drawUIText(info.stars>=3?'完美守城':info.stars===2?'稳住防线':'惊险守住',W/2,boxY+110,'muted',{size:16,strokeWidth:2});
+  const sy=boxY+220;
+  for(let i=0;i<3;i++){ drawStarIcon(W/2+(i-1)*110,sy,46,null,i<info.stars); }
+  const statY=boxY+306, cardW=(boxW-74)/2;
+  rr(boxX+24,statY,cardW,92,18); ctx.fillStyle='rgba(255,255,255,.055)'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=2; rr(boxX+24,statY,cardW,92,18); ctx.stroke();
+  rr(boxX+50+cardW,statY,cardW,92,18); ctx.fillStyle='rgba(255,255,255,.055)'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.10)'; rr(boxX+50+cardW,statY,cardW,92,18); ctx.stroke();
+  drawUIText('城墙剩余',boxX+24+cardW/2,statY+31,'muted',{size:14,align:'center',strokeWidth:1.8});
+  drawUIText(Math.round(info.hpRatio*100)+'%',boxX+24+cardW/2,statY+68,'accent',{size:30,align:'center',strokeWidth:2.8});
+  drawUIText('守城星级',boxX+50+cardW+cardW/2,statY+31,'muted',{size:14,align:'center',strokeWidth:1.8});
+  drawUIText(info.stars+'/3',boxX+50+cardW+cardW/2,statY+68,'accent',{size:30,align:'center',strokeWidth:2.8});
+  const rewardY=boxY+424;
+  rr(boxX+24,rewardY,boxW-48,128,20); ctx.fillStyle=info.catReward?'rgba(127,224,160,.10)':'rgba(255,255,255,.045)'; ctx.fill(); ctx.strokeStyle=info.catReward?'rgba(127,224,160,.48)':'rgba(255,255,255,.10)'; ctx.lineWidth=2; rr(boxX+24,rewardY,boxW-48,128,20); ctx.stroke();
+  drawUIText(info.catReward?'首通奖励':'本关奖励状态',boxX+48,rewardY+34,'success',{size:16,align:'left',strokeWidth:2});
+  if(info.catReward){
+    drawCatBroArtAt(info.catReward.id,boxX+86,rewardY+83,76);
+    drawUIText(info.catReward.name,boxX+138,rewardY+73,'title',{size:25,align:'left',strokeWidth:2.8});
+    drawUIText(info.catReward.skill,boxX+138,rewardY+103,'accent',{size:14,align:'left',strokeWidth:1.8});
+  }else{
+    drawUIText('已领取过本关首通猫小弟奖励',W/2,rewardY+83,'muted',{size:17,align:'center',strokeWidth:2});
   }
-
-  // ===== 剩余生命（延迟淡入） =====
-  {
-    const p = Math.max(0, Math.min(1, (stageVictoryAnimT - 0.75) / 0.4));
-    ctx.globalAlpha = ease * p;
-    drawUITextRich([
-      { text: '剩余生命 ' },
-      { text: Math.round(info.hpRatio * 100) + '%', colorKey: 'accent', gold: true }
-    ], W/2, boxY + 290, { size: 22 });
-    ctx.globalAlpha = ease;
+  stageVictoryBtnRects=[];
+  let by=boxY+602;
+  if(!info.isLast){
+    const btn={x:W/2,y:by,w:boxW-72,h:62}; drawAppButton(btn,'下一关','#7fe0a0','#289858',{fontSize:25,pulse:true});
+    stageVictoryBtnRects.push({x:btn.x-btn.w/2,y:btn.y-btn.h/2,w:btn.w,h:btn.h,action:'next'}); by+=78;
   }
-
-  // ===== 星级评语（延迟淡入） =====
-  {
-    const p = Math.max(0, Math.min(1, (stageVictoryAnimT - 0.90) / 0.4));
-    const msg = info.stars >= 3 ? '完美通关！'
-              : info.stars === 2 ? '表现不错！'
-              : '惊险通关！';
-    ctx.globalAlpha = ease * p;
-    drawUIText(msg, W/2, boxY + 340, 'title', {
-      size: 28,
-      gradient: UI_GRADIENT_GOLD,
-      glow: true,
-      glowColor: 'rgba(255, 210, 74, 0.75)',
-      glowSize: 16
-    });
-    ctx.globalAlpha = ease;
-  }
-
-  // ===== 按钮（最后出现） =====
-  const btnP = Math.max(0, Math.min(1, (stageVictoryAnimT - 1.0) / 0.4));
-  ctx.globalAlpha = ease * btnP;
-
-  stageVictoryBtnRects = [];
-  if(btnP >= 1){
-    let by = boxY + boxH - 240;
-
-    if(!info.isLast){
-      const btn = { x: W/2, y: by, w: 300, h: 60 };
-      drawAppButton(btn, '下 一 关', '#7fe0a0', '#289858', { fontSize: 24 });
-      stageVictoryBtnRects.push({ x: btn.x - btn.w/2, y: btn.y - btn.h/2, w: btn.w, h: btn.h, action: 'next' });
-      by += 76;
-    }
-
-    {
-      const btn = { x: W/2, y: by, w: 300, h: 56 };
-      drawAppButton(btn, '返 回 选 关', '#7fb8ff', '#3878b8', { fontSize: 22 });
-      stageVictoryBtnRects.push({ x: btn.x - btn.w/2, y: btn.y - btn.h/2, w: btn.w, h: btn.h, action: 'back' });
-      by += 72;
-    }
-
-    // 技能树入口
-    {
-      const btn = { x: W/2, y: by, w: 240, h: 50 };
-      drawAppButton(btn, '查 看 技 能 树', '#ffb84a', '#c87820', { fontSize: 18 });
-      stageVictoryBtnRects.push({ x: btn.x - btn.w/2, y: btn.y - btn.h/2, w: btn.w, h: btn.h, action: 'skill' });
-
-      // ★ 红点
-      if(hasAvailableSkill()){
-        const dotX = btn.x + btn.w/2 - 6;
-        const dotY = btn.y - btn.h/2 + 6;
-        const pulse = 0.5 + Math.sin(gameTime * 5) * 0.5;
-        ctx.save();
-        ctx.globalAlpha = 0.45 + pulse * 0.35;
-        ctx.fillStyle = '#ff3b3b';
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 11 + pulse * 4, 0, TAU);
-        ctx.fill();
-        ctx.restore();
-        ctx.fillStyle = '#ff3030';
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 8, 0, TAU);
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 8, 0, TAU);
-        ctx.stroke();
-      }
-    }
-  }
-
+  const back={x:W/2,y:by,w:boxW-72,h:56}; drawAppButton(back,'返回关卡','#7fb8ff','#3878b8',{fontSize:21});
+  stageVictoryBtnRects.push({x:back.x-back.w/2,y:back.y-back.h/2,w:back.w,h:back.h,action:'back'});
+  if(hasAvailableSkill()){ by+=72; const skill={x:W/2,y:by,w:250,h:46}; drawAppButton(skill,'查看技能树','#ffb84a','#c87820',{fontSize:17}); stageVictoryBtnRects.push({x:skill.x-skill.w/2,y:skill.y-skill.h/2,w:skill.w,h:skill.h,action:'skill'}); }
   ctx.restore();
 }
 
-// ================= 主菜单货币栏 =================
-function drawCurrencyBar(topY){
-  if(topY === undefined) topY = 18;
-  const h = 44;
-  const gap = 8;
-  const rightEdge = W - 14;
+// ================= 游戏说明 =================
 
-  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
 
-  const coinText = String(currency.coins);
-  const diaText  = String(currency.diamonds);
-  const coinTextW = ctx.measureText(coinText).width;
-  const diaTextW  = ctx.measureText(diaText).width;
+// === 1.13 回滚补齐：恢复 1.11 中被 1.12 结算界面替换误删的 UI 函数 ===
+function drawBootScreen(){
+  // 启动页只保留原菜单背景 + 一个明确的开始游戏按钮；这里绝不显示底部导览。
+  drawAppBackground();
+  const shade=ctx.createLinearGradient(0,H*0.52,0,H);
+  shade.addColorStop(0,'rgba(6,16,24,0)');
+  shade.addColorStop(1,'rgba(5,12,18,.58)');
+  ctx.fillStyle=shade; ctx.fillRect(0,0,W,H);
 
-  const iconSize = h - 8;
-  const coinBarW = iconSize + 6 + coinTextW + 22;
-  const diaBarW  = iconSize + 6 + diaTextW  + 22;
-
-  // 钻石在右，金币在左
-  const diaX  = rightEdge - diaBarW;
-  const coinX = diaX - gap - coinBarW;
-
-  drawOneCurrencyBar(coinX, topY, coinBarW, h, 'icon_coin',    coinText, '#ffd24a');
-  drawOneCurrencyBar(diaX,  topY, diaBarW,  h, 'icon_diamond', diaText,  '#88e0ff');
+  bootStartBtnRect={x:W/2-190,y:H-245,w:380,h:88};
+  drawAppButton({x:W/2,y:H-201,w:380,h:88},'开始游戏','#7fe0a0','#fff',{fontSize:31,pulse:true});
 }
 
-function drawOneCurrencyBar(x, y, w, h, iconKey, text, borderColor){
-  // 深色胶囊
-  rr(x, y, w, h, h/2);
-  const grd = ctx.createLinearGradient(x, y, x, y + h);
-  grd.addColorStop(0, 'rgba(22, 32, 42, 0.94)');
-  grd.addColorStop(1, 'rgba(8, 14, 20, 0.94)');
-  ctx.fillStyle = grd;
-  ctx.fill();
-
-  ctx.strokeStyle = borderColor;
-  ctx.lineWidth = 2;
-  rr(x, y, w, h, h/2);
-  ctx.stroke();
-
-  // 图标
-  const iconSize = h - 8;
-  const iconImg = UI.assets[iconKey];
-  if(iconImg){
-    ctx.drawImage(iconImg, x + 4, y + 4, iconSize, iconSize);
-  }
-
-  // 数字
-  drawUIText(text, x + w - 12, y + h/2 + 8, 'body', {
-    size: 22,
-    align: 'right',
-    strokeWidth: 2
-  });
-}
-
-// ================= 主菜单位图按钮 =================
-// 三个按钮共用同一宽度（400），高度按各自比例算
-// 从底部往上排，间距 20
-function layoutMenuButtons(){
-  const MARGIN_BOTTOM = 120;
-  const GAP = 16;
-
-  const widths = {
-    btn_start:   450,
-    btn_history: 300,
-    btn_help:    300
-  };
-
-  const keys = ['btn_start', 'btn_history', 'btn_help'];
-  const rows = [];
-
-  for(const k of keys){
-    const spr = SPRITES[k];
-    const wTarget = widths[k] || 300;
-    let h = 96;
-    if(spr && spr.loaded && spr.img){
-      h = wTarget * (spr.img.height / spr.img.width);
-    }
-    rows.push({ key: k, w: wTarget, h: h });
-  }
-
-  let totalH = 0;
-  for(const r of rows) totalH += r.h;
-  totalH += GAP * (rows.length - 1);
-
-  let cy = H - MARGIN_BOTTOM - totalH;
-  const rects = [MENU_START_BTN, MENU_LB_BTN, MENU_HELP_BTN];
-  for(let i = 0; i < rows.length; i++){
-    const r = rows[i];
-    const rect = rects[i];
-    rect.x = W/2;
-    rect.y = cy + r.h / 2;
-    rect.w = r.w;
-    rect.h = r.h;
-    cy += r.h + GAP;
-  }
-}
-
-function drawMenuSpriteButton(b, sprKey){
-  const spr = SPRITES[sprKey];
-
+function drawCatBroArtAt(cfg, cx, cy, size, index, owned){
+  const key = cfg && cfg.spriteKey && SPRITES[cfg.spriteKey] ? cfg.spriteKey : (index % 2 === 0 ? 'catbro' : 'catbro2');
+  const spr = SPRITES[key];
   if(!spr || !spr.loaded || !spr.img){
-    const fallback = {
-      btn_start:   ['开 始 游 戏', '#ff8fb0', '#c84870'],
-      btn_history: ['历 史 战 绩', '#ffb84a', '#c87820'],
-      btn_help:    ['游 戏 说 明', '#7fb8ff', '#3878b8']
-    };
-    const f = fallback[sprKey] || ['按 钮', '#ff8fb0', '#c84870'];
-    drawAppButton(b, f[0], f[1], f[2], { fontSize: 30, pulse: true });
+    ctx.save(); ctx.globalAlpha=owned?0.55:0.25; ctx.fillStyle='#d7e4ea'; ctx.beginPath(); ctx.arc(cx,cy,size*0.42,0,TAU); ctx.fill(); ctx.restore();
     return;
   }
-
-  const img = spr.img;
-  const dx = b.x - b.w / 2;
-  const dy = b.y - b.h / 2;
-  ctx.drawImage(img, dx, dy, b.w, b.h);
-}
-
-// ================= 主菜单 =================
-function drawMainMenu(){
-  drawAppBackground();     // cover 铺满背景
-
-  // 1. 右上角货币栏
-  drawCurrencyBar();
-
-  // 2. 三个位图按钮（自适应位置 + 大小）
-  layoutMenuButtons();
-  drawMenuSpriteButton(MENU_START_BTN,   'btn_start');
-  drawMenuSpriteButton(MENU_LB_BTN,      'btn_history');
-  drawMenuSpriteButton(MENU_HELP_BTN,    'btn_help');
-
-  // 3. 隐藏操作反馈 toast
-  if(menuToast.life > 0){
-    const a = Math.min(1, menuToast.life / 0.4);
-    ctx.save();
-    ctx.globalAlpha = a;
-
-    ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
-    const tw = ctx.measureText(menuToast.text).width;
-    const bx = W/2, by = 200;
-
-    rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
-    ctx.fillStyle = 'rgba(10, 20, 35, 0.95)';
-    ctx.fill();
-    ctx.strokeStyle = UI_COLORS.success;
-    ctx.lineWidth = 2;
-    rr(bx - tw/2 - 24, by - 28, tw + 48, 56, 14);
-    ctx.stroke();
-    ctx.restore();
-
-    drawUIText(menuToast.text, bx, by + 8, 'success', { size: 22, alpha: a });
-  }
-}
-
-// ================= 首屏启动页 =================
-// 出现动画：从下方滑入 + 淡入 + 略微放大
-//   delay   延迟几秒开始
-//   dur     持续几秒
-// 返回 { alpha, offsetY, scale }
-function getEnterAnim(delay, dur){
-  const p = Math.max(0, Math.min(1, (bootAnimT - delay) / dur));
-  const ease = 1 - Math.pow(1 - p, 3);       // ease out cubic
-  return {
-    alpha:   Math.min(1, p * 1.6),
-    offsetY: (1 - ease) * 55,                 // 从下方 55px 滑入
-    scale:   0.72 + ease * 0.28               // 0.72 → 1.0
-  };
-}
-
-// 以 (cx, cy) 为中心做缩放 + 位移
-// fn 是要执行的绘制函数
-function withEnterAnim(cx, cy, a, fn){
   ctx.save();
-  ctx.globalAlpha = a.alpha;
-  ctx.translate(cx, cy + a.offsetY);
-  ctx.scale(a.scale, a.scale);
-  ctx.translate(-cx, -cy);
-  fn();
+  ctx.globalAlpha = owned ? 1 : 0.22;
+  ctx.drawImage(spr.img,cx-size/2,cy-size/2,size,size);
   ctx.restore();
 }
-function drawBootScreen(){
+
+function drawCatBroCollectionScreen(){
   drawAppBackground();
-
-  // ===== 主标题（最先出现） =====
-  withEnterAnim(W/2, 180, getEnterAnim(0.10, 0.85), () => {
-    drawCuteTitle(W/2, 180);
+  ctx.fillStyle='rgba(8,14,22,0.60)'; ctx.fillRect(0,0,W,H);
+  drawCurrencyBar();
+  drawAppTitle('猫 小 弟',W/2,95,40);
+  drawUIText('永久收藏 · 最多部署3只',W/2,135,'muted',{size:17,strokeWidth:3});
+  drawUIText('已拥有 '+getOwnedCatBroCount()+' / 10',W/2,170,'accent',{size:21,strokeWidth:3});
+  catBroCollectionRects=[];
+  const cols=2, cardW=300, cardH=205, gapX=30, gapY=18, startX=(W-cols*cardW-(cols-1)*gapX)/2, startY=205;
+  CATBRO_COLLECTION.forEach((cfg,i)=>{
+    const col=i%cols,row=Math.floor(i/cols),x=startX+col*(cardW+gapX),y=startY+row*(cardH+gapY);
+    const owned=isCatBroOwned(cfg.id), deployed=catBroDeploy.includes(cfg.id);
+    ctx.save(); rr(x,y,cardW,cardH,20); ctx.fillStyle=owned?'rgba(255,248,230,.96)':'rgba(55,65,78,.78)'; ctx.fill(); ctx.strokeStyle=deployed?'#ffd24a':owned?'#d9b47a':'rgba(255,255,255,.16)'; ctx.lineWidth=deployed?5:2; rr(x,y,cardW,cardH,20); ctx.stroke();
+    if(owned){ drawCatSpriteAt(i%2?'catbro2':'catbro',x+65,y+92,105); }
+    else { ctx.fillStyle='rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(x+65,y+92,45,0,TAU); ctx.fill(); drawUIText('?',x+65,y+104,'muted',{size:46,strokeWidth:5}); }
+    drawUIText(owned?cfg.name:'???',x+125,y+42,owned?'title':'muted',{size:24,strokeWidth:4});
+    drawUIText(owned?cfg.skill:'未获得',x+125,y+76,owned?'accent':'muted',{size:16,strokeWidth:3});
+    drawUIText(owned?cfg.desc:'首次通关一个新关卡获得',x+125,y+108,'muted',{size:13,strokeWidth:3});
+    if(owned){
+      drawUIText(deployed?'已部署':'点击部署',x+125,y+155,deployed?'accent':'title',{size:17,strokeWidth:3});
+      drawUIText('攻击 '+cfg.dmg+' · '+cfg.rate.toFixed(2)+'s',x+125,y+181,'muted',{size:12,strokeWidth:2});
+    }
+    ctx.restore(); catBroCollectionRects.push({x,y,w:cardW,h:cardH,id:cfg.id});
   });
-
-  // ===== 副标题 =====
-  withEnterAnim(W/2, 260, getEnterAnim(0.35, 0.75), () => {
-    drawUIText('末世鼠潮 · 猫咪反击战', W/2, 260, 'muted', { size: 30 });
-  });
-
-  // ===== 点击提示（带呼吸脉冲） =====
-  {
-    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
-    const breathScale = 1 + pulse * 0.05;   // ★ 大小随脉冲变化 ±5%
-
-    withEnterAnim(W/2, 870, getEnterAnim(0.80, 0.75), () => {
-      drawUIText('点击屏幕开始', W/2, 870, 'title', {
-        size: 50,
-        scale: breathScale,                   // ★ 呼吸缩放
-        glow: true,
-        glowColor: 'rgba(255, 210, 74, ' + (0.35 + pulse * 0.6) + ')',
-        glowSize: 24 + pulse * 22              // ★ 发光范围拉大
-      });
-    });
-  }
-
-  // ===== 声音提示（与点击提示同相位，但幅度小） =====
-  {
-    const pulse = 0.5 + 0.5 * Math.sin(gameTime * 3);
-    withEnterAnim(W/2, 920, getEnterAnim(1.00, 0.75), () => {
-      drawUIText('开启声音 · 进入游戏', W/2, 920, 'muted', {
-        size: 25,
-        scale: 1 + pulse * 0.025                // ★ 幅度只有一半
-      });
-    });
-  }
+  const by=H-72;
+  catBroCollectionBackRect={x:30,y:by-30,w:170,h:58};
+  drawAppButton({x:115,y:by-1,w:170,h:58},'返 回','#7fb8ff','#3878b8',{fontSize:22});
+  catBroCollectionStartRect={x:W-205,y:by-30,w:330,h:58};
+  drawAppButton({x:W-40,y:by-1,w:330,h:58},'完成部署','#7fe0a0','#289858',{fontSize:22});
 }
 
-// ================= 选猫界面 =================
-// 无尽模式是否已解锁（通过第 1 关）
-function isEndlessUnlocked(){
-  return (stageProgress.stars[1] || 0) > 0;
-}
 function drawCatSelectScreen(){
   drawAppBackground();
 
@@ -8777,6 +8956,39 @@ function drawCatSelectScreen(){
   // 按钮
   drawAppButton(CATCHOOSE_STAGE_BTN, '开 始 闯 关', '#7fe0a0', '#289858', { fontSize: 30, pulse: true });
 
+  // 猫小弟入口：与任务/技能树分开，避免与“开始闯关”重叠。
+  {
+    const bb=CATCHOOSE_BRO_BTN;
+    rr(bb.x-bb.w/2,bb.y-bb.h/2,bb.w,bb.h,16); ctx.fillStyle='rgba(230,248,255,.98)'; ctx.fill();
+    ctx.strokeStyle='#67b7d9'; ctx.lineWidth=3; rr(bb.x-bb.w/2,bb.y-bb.h/2,bb.w,bb.h,16); ctx.stroke();
+    drawUIText('🐾',bb.x,bb.y-7,'title',{size:22,strokeWidth:2});
+    drawUIText('猫小弟 '+getOwnedCatBroCount()+'/10',bb.x,bb.y+25,'title',{size:13,strokeWidth:2});
+  }
+
+  // 任务入口
+  {
+    const tb = CATCHOOSE_TASK_BTN;
+    rr(tb.x - tb.w/2, tb.y - tb.h/2, tb.w, tb.h, 16);
+    const grd = ctx.createLinearGradient(tb.x, tb.y - tb.h/2, tb.x, tb.y + tb.h/2);
+    grd.addColorStop(0, 'rgba(255, 244, 214, 0.98)');
+    grd.addColorStop(1, 'rgba(255, 190, 92, 0.98)');
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.strokeStyle = '#e59b36'; ctx.lineWidth = 3;
+    rr(tb.x - tb.w/2, tb.y - tb.h/2, tb.w, tb.h, 16); ctx.stroke();
+    drawUIText('任务', tb.x, tb.y + 28, 'title', {size:14,strokeWidth:3});
+    // 清单图标
+    ctx.strokeStyle='#8a5a20'; ctx.lineWidth=3;
+    for(let i=0;i<3;i++){
+      const yy=tb.y-28+i*13;
+      ctx.beginPath(); ctx.moveTo(tb.x-23,yy); ctx.lineTo(tb.x-16,yy+6); ctx.lineTo(tb.x-6,yy-5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(tb.x+1,yy); ctx.lineTo(tb.x+24,yy); ctx.stroke();
+    }
+    if(getClaimableTaskCount()>0){
+      ctx.fillStyle='#ff3030'; ctx.beginPath(); ctx.arc(tb.x+tb.w/2-5,tb.y-tb.h/2+5,9,0,TAU); ctx.fill();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+    }
+  }
+
   // 技能树入口
   {
     const sb = CATCHOOSE_SKILL_BTN;
@@ -8848,16 +9060,438 @@ function drawCatSelectScreen(){
   if(isEndlessUnlocked()){
     drawAppButton(CATCHOOSE_ENDLESS_BTN, '无 尽 模 式', '#ffd24a', '#c87820', { fontSize: 30 });
     // 无尽按钮显示时，"返回"在第三行
-    CATCHOOSE_BACK_BTN.y = 1120;
+    CATCHOOSE_BACK_BTN.y = 1200;
   } else {
     // 无尽按钮不显示时，"返回"上移到第二行，填补空隙
-    CATCHOOSE_BACK_BTN.y = 1000;
+    CATCHOOSE_BACK_BTN.y = 1200;
   }
 
   drawAppButton(CATCHOOSE_BACK_BTN, '返 回', '#7fb8ff', '#3878b8', { fontSize: 30 });
 }
 
-// ================= 游戏说明 =================
+function drawCurrencyBar(topY){
+  if(topY === undefined) topY = 18;
+  const h = 44;
+  const gap = 8;
+  const rightEdge = W - 14;
+
+  ctx.font = 'bold 22px "Microsoft YaHei",sans-serif';
+
+  const coinText = String(currency.coins);
+  const diaText  = String(currency.diamonds);
+  const coinTextW = ctx.measureText(coinText).width;
+  const diaTextW  = ctx.measureText(diaText).width;
+
+  const iconSize = h - 8;
+  const coinBarW = iconSize + 6 + coinTextW + 22;
+  const diaBarW  = iconSize + 6 + diaTextW  + 22;
+
+  // 钻石在右，金币在左
+  const diaX  = rightEdge - diaBarW;
+  const coinX = diaX - gap - coinBarW;
+
+  drawOneCurrencyBar(coinX, topY, coinBarW, h, 'icon_coin',    coinText, '#ffd24a');
+  drawOneCurrencyBar(diaX,  topY, diaBarW,  h, 'icon_diamond', diaText,  '#88e0ff');
+}
+
+function drawHomeScreen(){
+  drawAppBackground();
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.90});
+  drawCurrencyBar(34);
+  drawAppTitle('家 园',W/2,88,40);
+  drawUIText('猫小弟收藏',42,155,'title',{size:23,align:'left',strokeWidth:2.8});
+  drawUIText(getOwnedCatBroCount()+' / 10',W-42,155,'accent',{size:24,align:'right',strokeWidth:2.8});
+  drawUIText('展示猫咪形象与名称 · 技能只做简要介绍',42,185,'muted',{size:14,align:'left',strokeWidth:1.8});
+
+  homeCatRects=[];
+  const cols=3, cardW=206, cardH=218, gapX=16, gapY=18, startX=30, startY=214;
+  CATBRO_COLLECTION.forEach((c,i)=>{
+    const col=i%cols,row=Math.floor(i/cols),x=startX+col*(cardW+gapX),y=startY+row*(cardH+gapY),owned=isCatBroOwned(c.id),dep=catBroDeploy.includes(c.id);
+    rr(x,y,cardW,cardH,22);
+    const g=ctx.createLinearGradient(x,y,x,y+cardH); g.addColorStop(0,owned?'rgba(35,56,68,.98)':'rgba(26,35,43,.90)'); g.addColorStop(1,owned?'rgba(14,27,38,.99)':'rgba(17,23,29,.94)'); ctx.fillStyle=g; ctx.fill();
+    ctx.strokeStyle=dep?'#ffd24a':owned?'rgba(121,202,221,.34)':'rgba(120,140,155,.17)'; ctx.lineWidth=dep?3:1.4; rr(x,y,cardW,cardH,22); ctx.stroke();
+
+    drawCatBroArtAt(c,x+cardW/2,y+76,118,i,owned);
+    drawUIText(owned?c.name:'???',x+cardW/2,y+143,owned?'body':'muted',{size:22,align:'center',strokeWidth:2.8});
+    drawUIText(owned?c.skill:'未获得',x+cardW/2,y+170,owned?'accent':'muted',{size:14,align:'center',strokeWidth:1.9});
+    drawUIText(owned?c.desc:'首次通关新关卡获得',x+cardW/2,y+192,'muted',{size:11,align:'center',strokeWidth:1.5});
+    if(owned){
+      rr(x+58,y+197,90,14,7); ctx.fillStyle=dep?'rgba(255,210,74,.18)':'rgba(127,224,160,.10)'; ctx.fill();
+      drawUIText(dep?'已部署':'未部署',x+cardW/2,y+208,dep?'accent':'muted',{size:10,strokeWidth:1.4});
+      homeCatRects.push({x,y,w:cardW,h:cardH,id:c.id});
+    }
+  });
+
+  drawUIText('点击已拥有的猫可切换部署状态 · 部署数量上限 3 只',W/2,1110,'muted',{size:13,strokeWidth:1.7});
+  drawGlobalNav();
+}
+
+function drawMainMenu(){
+  drawAppBackground();
+  // 原菜单背景只负责“气氛”，所有信息都压进内容底框，避免角色原画与 UI 互相穿插。
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.88});
+  drawCurrencyBar(34);
+
+  // 品牌区
+  drawCuteTitle(W/2,100);
+  drawUIText('城堡防线 · 猫咪守城作战',W/2,152,'muted',{size:22,strokeWidth:2.5});
+  drawUIText('主线进度  '+Math.min(TOTAL_STAGES,Math.max(1,stageProgress.unlockedMax))+' / '+TOTAL_STAGES,
+    W/2,185,'accent',{size:18,strokeWidth:2.2});
+
+  // 主视觉区：留足空间，不让人物和信息互相拥挤。
+  const x=38,y=220,w=W-76,h=430;
+  rr(x,y,w,h,28);
+  const panel=ctx.createLinearGradient(x,y,x,y+h);
+  panel.addColorStop(0,'rgba(22,39,54,.92)');
+  panel.addColorStop(1,'rgba(10,22,33,.96)');
+  ctx.fillStyle=panel; ctx.fill();
+  ctx.strokeStyle='rgba(137,206,232,.38)'; ctx.lineWidth=2.5; rr(x,y,w,h,28); ctx.stroke();
+  rr(x+8,y+8,w-16,h-16,22); ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.lineWidth=1; ctx.stroke();
+
+  drawSectionLabel('当前主角',x+28,y+46,'#7fe0a0');
+  const heroCx=x+175, heroCy=y+207;
+  ctx.fillStyle='rgba(87,210,183,.10)'; ctx.beginPath(); ctx.arc(heroCx,heroCy,126,0,TAU); ctx.fill();
+  ctx.strokeStyle='rgba(112,226,205,.24)'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(heroCx,heroCy,100+Math.sin(menuTime*2)*4,0,TAU); ctx.stroke();
+  const spr=getCurrentCatSprite();
+  if(spr && spr.loaded && spr.img) ctx.drawImage(spr.img,heroCx-110,heroCy-110,220,220);
+  else { drawSimpleCatBroIcon(heroCx,heroCy,0,true); }
+  drawUIText(getCurrentCatName(),heroCx,y+356,'title',{size:26,strokeWidth:3.2});
+  drawUIText('当前战斗角色',heroCx,y+384,'muted',{size:15,strokeWidth:1.8});
+
+  const rx=x+340;
+  drawSectionLabel('下一目标',rx,y+46,'#ffd24a');
+  drawUIText('第 '+Math.max(1,stageProgress.unlockedMax)+' 关',rx,y+100,'body',{size:40,align:'left',strokeWidth:3.3});
+  drawUIText((stageProgress.stars[stageProgress.unlockedMax]||0)>0 ? '已通关 · 可再次挑战' : '首次挑战 · 首通可获得猫小弟',rx,y+134,'accent',{size:15,align:'left',strokeWidth:2});
+
+  drawUIText('当前阵容',rx,y+190,'muted',{size:16,align:'left',strokeWidth:2});
+  drawUIText('猫小弟',rx,y+228,'body',{size:21,align:'left',strokeWidth:2.5});
+  drawUIText(getOwnedCatBroCount()+'/10',x+w-28,y+228,'accent',{size:23,align:'right',strokeWidth:2.5});
+  drawUIText('部署',rx,y+267,'body',{size:21,align:'left',strokeWidth:2.5});
+  drawUIText(catBroDeploy.length+'/3',x+w-28,y+267,'success',{size:23,align:'right',strokeWidth:2.5});
+  drawUIText('武器',rx,y+306,'body',{size:21,align:'left',strokeWidth:2.5});
+  drawUIText(currentWeapon==='catfood'?'猫粮':currentWeapon==='laser'?'激光':'导弹',x+w-28,y+306,'accent',{size:20,align:'right',strokeWidth:2.4});
+
+  // 主 CTA 放大，同时保留充足上下间距。
+  menuStartBtnRect={x:W/2-150,y:700,w:300,h:78};
+  drawAppButton({x:W/2,y:739,w:300,h:78},'开始守城','#7fe0a0','#fff',{fontSize:29,pulse:true});
+
+  // 四个状态信息块，故意放大而不是继续压缩。
+  const chips=[
+    ['累计星星',getTotalEarnedStars()+' ★','#ffd24a'],
+    ['技能点',getAvailableSkillPoints()+' 点','#7fd8ff'],
+    ['猫小弟',getOwnedCatBroCount()+' / 10','#7fe0a0'],
+    ['当前武器',currentWeapon==='catfood'?'猫粮':currentWeapon==='laser'?'激光':'导弹','#ffb84a']
+  ];
+  const chipW=148, chipH=66, chipGap=8, chipY=826;
+  chips.forEach((c,i)=>{
+    const cx=x+8+i*(chipW+chipGap),cy=chipY;
+    rr(cx,cy,chipW,chipH,17);
+    ctx.fillStyle='rgba(255,255,255,.045)'; ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.lineWidth=1.2; rr(cx,cy,chipW,chipH,17); ctx.stroke();
+    drawUIText(c[0],cx+14,cy+25,'muted',{size:12,align:'left',strokeWidth:1.6});
+    drawUIText(c[1],cx+chipW-14,cy+48,'body',{size:18,align:'right',strokeWidth:2.2});
+    ctx.fillStyle=c[2]; rr(cx+14,cy+53,38,4,2); ctx.fill();
+  });
+
+  // 清档：明确、独立，但不会喧宾夺主。
+  mainResetBtnRect={x:38,y:919,w:190,h:58};
+  rr(mainResetBtnRect.x,mainResetBtnRect.y,mainResetBtnRect.w,mainResetBtnRect.h,17);
+  ctx.fillStyle='rgba(105,46,56,.36)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,125,125,.66)'; ctx.lineWidth=1.7; rr(mainResetBtnRect.x,mainResetBtnRect.y,mainResetBtnRect.w,mainResetBtnRect.h,17); ctx.stroke();
+  drawUIText('↺  清除全部数据',mainResetBtnRect.x+mainResetBtnRect.w/2,mainResetBtnRect.y+36,'danger',{size:16,strokeWidth:2.2});
+  drawUIText('测试用',mainResetBtnRect.x+mainResetBtnRect.w/2,mainResetBtnRect.y+55,'muted',{size:10,strokeWidth:1.4});
+
+  if(menuToast.life>0) drawUIText(menuToast.text,W/2,989,'success',{size:18,strokeWidth:2.6});
+
+  if(mainResetConfirm){
+    drawAppOverlay(.80);
+    const pw=606,ph=318,px=(W-pw)/2,py=(H-ph)/2-42;
+    rr(px,py,pw,ph,28);
+    const pg=ctx.createLinearGradient(px,py,px,py+ph); pg.addColorStop(0,'rgba(28,39,52,.99)'); pg.addColorStop(1,'rgba(15,22,31,.99)');
+    ctx.fillStyle=pg; ctx.fill(); ctx.strokeStyle='rgba(255,125,125,.78)'; ctx.lineWidth=2.5; rr(px,py,pw,ph,28); ctx.stroke();
+    drawUIText('确定清除全部游戏数据？',W/2,py+66,'danger',{size:31,strokeWidth:4});
+    drawUIText('关卡、星级、任务、技能点、猫小弟收藏等都会归零',W/2,py+118,'muted',{size:16,strokeWidth:2.2});
+    drawUIText('清除后将从第 1 关重新开始',W/2,py+148,'muted',{size:16,strokeWidth:2});
+    drawAppButton({x:W/2-112,y:py+237,w:184,h:62},'取消','#7fb8ff','#fff',{fontSize:21});
+    drawAppButton({x:W/2+112,y:py+237,w:184,h:62},'确认清除','#ff8a8a','#fff',{fontSize:21});
+    mainResetConfirmRects=[
+      {x:W/2-112-92,y:py+237-31,w:184,h:62},
+      {x:W/2+112-92,y:py+237-31,w:184,h:62}
+    ];
+  } else mainResetConfirmRects=[];
+
+  drawGlobalNav();
+}
+
+function drawMenuSpriteButton(b, sprKey){
+  const spr = SPRITES[sprKey];
+
+  if(!spr || !spr.loaded || !spr.img){
+    const fallback = {
+      btn_start:   ['开 始 游 戏', '#ff8fb0', '#c84870'],
+      btn_history: ['历 史 战 绩', '#ffb84a', '#c87820'],
+      btn_help:    ['游 戏 说 明', '#7fb8ff', '#3878b8']
+    };
+    const f = fallback[sprKey] || ['按 钮', '#ff8fb0', '#c84870'];
+    drawAppButton(b, f[0], f[1], f[2], { fontSize: 30, pulse: true });
+    return;
+  }
+
+  const img = spr.img;
+  const dx = b.x - b.w / 2;
+  const dy = b.y - b.h / 2;
+  ctx.drawImage(img, dx, dy, b.w, b.h);
+}
+
+function drawOneCurrencyBar(x, y, w, h, iconKey, text, borderColor){
+  // 深色胶囊
+  rr(x, y, w, h, h/2);
+  const grd = ctx.createLinearGradient(x, y, x, y + h);
+  grd.addColorStop(0, 'rgba(22, 32, 42, 0.94)');
+  grd.addColorStop(1, 'rgba(8, 14, 20, 0.94)');
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 2;
+  rr(x, y, w, h, h/2);
+  ctx.stroke();
+
+  // 图标
+  const iconSize = h - 8;
+  const iconImg = UI.assets[iconKey];
+  if(iconImg){
+    ctx.drawImage(iconImg, x + 4, y + 4, iconSize, iconSize);
+  }
+
+  // 数字
+  drawUIText(text, x + w - 12, y + h/2 + 8, 'body', {
+    size: 22,
+    align: 'right',
+    strokeWidth: 2
+  });
+}
+
+function drawPlaceholderScreen(){
+  drawAppBackground();
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.90});
+  drawCurrencyBar(34);
+  drawAppTitle(placeholderFrom==='inventory'?'背 包':'商 城',W/2,88,40);
+  const title=placeholderFrom==='inventory'?'背包系统':'商城系统';
+  const sub=placeholderFrom==='inventory'?'装备、道具与消耗品将在这里管理':'充值与商店内容将在这里开放';
+  rr(42,230,W-84,420,28); ctx.fillStyle='rgba(17,29,41,.95)'; ctx.fill(); ctx.strokeStyle='rgba(127,216,255,.22)'; ctx.lineWidth=2; rr(42,230,W-84,420,28); ctx.stroke();
+  drawUIText(title,W/2,382,'body',{size:34,strokeWidth:3.2});
+  drawUIText(sub,W/2,432,'muted',{size:17,strokeWidth:2.1});
+  drawUIText('占位功能',W/2,508,'accent',{size:21,strokeWidth:2.7});
+  drawUIText('该入口暂不开发',W/2,546,'muted',{size:15,strokeWidth:1.8});
+  drawGlobalNav();
+}
+
+function drawSectionLabel(text, x, y, accent){
+  const c = accent || '#7fd8ff';
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,.035)';
+  rr(x, y-22, 8, 30, 4); ctx.fill();
+  ctx.fillStyle = c;
+  rr(x, y-22, 8, 30, 4); ctx.fill();
+  drawUIText(text, x+22, y, 'body', {size:22, align:'left', strokeWidth:2.6});
+  ctx.restore();
+}
+
+function drawSimpleCatBroIcon(cx,cy,idx,owned){
+  ctx.save(); ctx.globalAlpha=owned?1:.35; const coats=['#f2a35b','#222','#d9a0b0','#f5f5f5','#c9b39b','#333','#9a6b4a','#d8a54d','#f4f1e8','#d9c2a2']; const col=coats[idx%coats.length]; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(cx,cy,42,0,TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx-34,cy-22); ctx.lineTo(cx-42,cy-55); ctx.lineTo(cx-12,cy-35); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx+34,cy-22); ctx.lineTo(cx+42,cy-55); ctx.lineTo(cx+12,cy-35); ctx.closePath(); ctx.fill(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(cx-15,cy-4,8,0,TAU); ctx.arc(cx+15,cy-4,8,0,TAU); ctx.fill(); ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(cx-15,cy-4,3,0,TAU); ctx.arc(cx+15,cy-4,3,0,TAU); ctx.fill(); ctx.fillStyle='#e88'; ctx.beginPath(); ctx.arc(cx,cy+12,6,0,TAU); ctx.fill(); ctx.restore();
+}
+
+function drawStagePrepScreen(){
+  drawAppBackground();
+  drawUIScreenFrame({x:18,y:18,w:W-36,h:GLOBAL_NAV_Y-34,alpha:.90});
+  drawCurrencyBar(34);
+  drawAppTitle('闯 关',W/2,88,40);
+  const stage=Math.max(1,Math.min(TOTAL_STAGES,currentPrepStage));
+  const stars=stageProgress.stars[stage]||0;
+
+  // 关卡信息
+  rr(40,170,W-80,132,22); const ig=ctx.createLinearGradient(40,170,40,302); ig.addColorStop(0,'rgba(27,47,62,.98)'); ig.addColorStop(1,'rgba(12,24,35,.98)'); ctx.fillStyle=ig; ctx.fill(); ctx.strokeStyle='rgba(127,216,255,.30)'; ctx.lineWidth=2; rr(40,170,W-80,132,22); ctx.stroke();
+  drawUIText('第 '+stage+' 关',66,218,'body',{size:32,align:'left',strokeWidth:3.3});
+  drawUIText(stars ? '最佳 '+('★'.repeat(stars)) : '尚未通关',66,259,stars?'accent':'muted',{size:19,align:'left',strokeWidth:2.2});
+  drawUIText('守住城墙 · 击败 Boss',W-66,221,'muted',{size:17,align:'right',strokeWidth:2});
+  drawUIText('首通新关卡可获得 1 只未拥有猫小弟',W-66,261,'success',{size:14,align:'right',strokeWidth:2});
+
+  drawSectionLabel('选择关卡',40,344,'#7fd8ff');
+  for(let i=0;i<TOTAL_STAGES;i++){
+    const n=i+1,col=i%5,row=Math.floor(i/5),x=40+col*128,y=370+row*70; const unlocked=n<=stageProgress.unlockedMax, done=(stageProgress.stars[n]||0)>0;
+    rr(x,y,114,56,15); ctx.fillStyle=!unlocked?'rgba(32,43,54,.78)':done?'rgba(91,76,35,.78)':n===stage?'rgba(35,91,79,.90)':'rgba(23,39,53,.90)'; ctx.fill(); ctx.strokeStyle=!unlocked?'rgba(120,140,160,.24)':n===stage?'#7fe0a0':done?'#ffd24a':'rgba(128,183,215,.28)'; ctx.lineWidth=n===stage?2.5:1.5; rr(x,y,114,56,15); ctx.stroke();
+    drawUIText(unlocked?String(n):'🔒',x+38,y+36,unlocked?'body':'muted',{size:20,strokeWidth:2.6});
+    if(unlocked) drawUIText(done?('★'+(stageProgress.stars[n]||0)):'NEW',x+87,y+36,done?'accent':'muted',{size:12,strokeWidth:2});
+  }
+
+  drawSectionLabel('主武器',40,529,'#ffd24a');
+  prepWeaponRects=[];
+  const weapons=[
+    ['catfood','猫粮','扇形弹幕 · 近距离命中率高','#ffd24a'],
+    ['laser','激光','持续穿透 · 覆盖能力强','#79e7ff'],
+    ['missile','导弹','自动追踪 · 稳定输出','#ff9d63']
+  ];
+  weapons.forEach((w,i)=>{
+    const x=35+i*230,y=554,sel=currentWeapon===w[0];
+    rr(x,y,215,156,22); const g=ctx.createLinearGradient(x,y,x,y+156); g.addColorStop(0,sel?'rgba(72,116,129,.32)':'rgba(20,33,46,.94)'); g.addColorStop(1,'rgba(11,21,30,.96)'); ctx.fillStyle=g; ctx.fill(); ctx.strokeStyle=sel?w[3]:'rgba(160,190,210,.20)'; ctx.lineWidth=sel?3:1.5; rr(x,y,215,156,22); ctx.stroke();
+    ctx.fillStyle=w[3]; ctx.globalAlpha=.13; ctx.beginPath(); ctx.arc(x+42,y+45,34,0,TAU); ctx.fill(); ctx.globalAlpha=1;
+    drawUIText(w[1],x+86,y+48,'body',{size:24,align:'left',strokeWidth:2.8});
+    drawUIText(w[2],x+15,y+91,'muted',{size:13,align:'left',strokeWidth:1.8});
+    drawUIText(sel?'已选择':'点击选择',x+15,y+131,sel?'success':'muted',{size:14,align:'left',strokeWidth:1.8});
+    prepWeaponRects.push({x,y,w:215,h:156,key:w[0]});
+  });
+
+  drawSectionLabel('猫小弟部署',40,750,'#7fe0a0');
+  drawUIText(catBroDeploy.length+'/3',W-40,750,'accent',{size:21,align:'right',strokeWidth:2.6});
+  prepCatRects=[];
+  const owned=CATBRO_COLLECTION.filter(c=>isCatBroOwned(c.id));
+  if(!owned.length){
+    rr(40,775,W-80,116,20); ctx.fillStyle='rgba(18,30,42,.88)'; ctx.fill(); ctx.strokeStyle='rgba(127,216,255,.18)'; ctx.lineWidth=1.5; rr(40,775,W-80,891,20); ctx.stroke();
+    drawCatBroArtAt(null, W/2, 824, 78, 0, false);
+    drawUIText('暂无猫小弟',W/2,860,'body',{size:20,strokeWidth:2.5});
+    drawUIText('首次通关一个尚未通关的关卡后获得',W/2,882,'muted',{size:13,strokeWidth:2});
+  } else {
+    owned.slice(0,6).forEach((c,i)=>{
+      const col=i%3,row=Math.floor(i/3),x=35+col*230,y=775+row*92,dep=catBroDeploy.includes(c.id);
+      rr(x,y,215,78,18); ctx.fillStyle=dep?'rgba(101,85,35,.72)':'rgba(17,29,41,.90)'; ctx.fill(); ctx.strokeStyle=dep?'#ffd24a':'rgba(150,185,205,.17)'; ctx.lineWidth=dep?2.5:1.2; rr(x,y,215,78,18); ctx.stroke();
+      drawCatBroArtAt(c,x+42,y+39,66,i,true);
+      drawUIText(c.name,x+83,y+30,'body',{size:16,align:'left',strokeWidth:2});
+      drawUIText(c.skill,x+83,y+55,'muted',{size:12,align:'left',strokeWidth:1.6});
+      drawUIText(dep?'已部署':'部署',x+195,y+45,dep?'accent':'body',{size:12,align:'right',strokeWidth:1.7});
+      prepCatRects.push({x,y,w:215,h:78,id:c.id});
+    });
+  }
+
+  prepStartRect={x:W/2-190,y:1010,w:380,h:76};
+  drawAppButton({x:W/2,y:1048,w:380,h:76},'开始守城','#7fe0a0','#fff',{fontSize:28,pulse:true});
+
+  stagePrepResetBtnRect={x:40,y:1102,w:190,h:42};
+  rr(stagePrepResetBtnRect.x,stagePrepResetBtnRect.y,stagePrepResetBtnRect.w,stagePrepResetBtnRect.h,14);
+  ctx.fillStyle='rgba(105,46,56,.32)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,125,125,.58)'; ctx.lineWidth=1.5; rr(stagePrepResetBtnRect.x,stagePrepResetBtnRect.y,stagePrepResetBtnRect.w,stagePrepResetBtnRect.h,14); ctx.stroke();
+  drawUIText('↺ 清除全部数据',stagePrepResetBtnRect.x+stagePrepResetBtnRect.w/2,stagePrepResetBtnRect.y+27,'danger',{size:14,strokeWidth:1.8});
+
+  // 清档确认弹窗也必须在闯关主界面可见，避免“点了按钮却不知道发生什么”。
+  if(mainResetConfirm){
+    drawAppOverlay(.82);
+    const pw=606,ph=318,px=(W-pw)/2,py=(GLOBAL_NAV_Y-ph)/2-10;
+    rr(px,py,pw,ph,28);
+    const pg=ctx.createLinearGradient(px,py,px,py+ph); pg.addColorStop(0,'rgba(28,39,52,.99)'); pg.addColorStop(1,'rgba(15,22,31,.99)');
+    ctx.fillStyle=pg; ctx.fill(); ctx.strokeStyle='rgba(255,125,125,.78)'; ctx.lineWidth=2.5; rr(px,py,pw,ph,28); ctx.stroke();
+    drawUIText('确定清除全部游戏数据？',W/2,py+66,'danger',{size:31,strokeWidth:4});
+    drawUIText('关卡、星级、任务、技能点、猫小弟收藏等都会归零',W/2,py+118,'muted',{size:16,strokeWidth:2.2});
+    drawUIText('清除后将从第 1 关重新开始',W/2,py+148,'muted',{size:16,strokeWidth:2});
+    drawAppButton({x:W/2-112,y:py+237,w:184,h:62},'取消','#7fb8ff','#fff',{fontSize:21});
+    drawAppButton({x:W/2+112,y:py+237,w:184,h:62},'确认清除','#ff8a8a','#fff',{fontSize:21});
+    mainResetConfirmRects=[
+      {x:W/2-112-92,y:py+237-31,w:184,h:62},
+      {x:W/2+112-92,y:py+237-31,w:184,h:62}
+    ];
+  } else mainResetConfirmRects=[];
+  drawGlobalNav();
+}
+
+function drawUIScreenFrame(opts){
+  opts = opts || {};
+  const x = opts.x !== undefined ? opts.x : 18;
+  const y = opts.y !== undefined ? opts.y : 18;
+  const w = opts.w !== undefined ? opts.w : W - 36;
+  const h = opts.h !== undefined ? opts.h : GLOBAL_NAV_Y - 34;
+  const alpha = opts.alpha !== undefined ? opts.alpha : 0.90;
+
+  ctx.save();
+  rr(x, y, w, h, 30);
+  const g = ctx.createLinearGradient(x, y, x, y+h);
+  g.addColorStop(0, `rgba(12,24,36,${alpha})`);
+  g.addColorStop(1, `rgba(7,17,27,${Math.min(0.97, alpha+0.05)})`);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(184,224,236,.28)';
+  ctx.lineWidth = 2.4;
+  rr(x, y, w, h, 30);
+  ctx.stroke();
+
+  rr(x+8, y+8, w-16, h-16, 24);
+  ctx.strokeStyle = 'rgba(255,255,255,.08)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // 顶部柔和光带，让深色底框不会显得像一块死黑矩形。
+  const glow = ctx.createLinearGradient(x+30, y+28, x+w-30, y+28);
+  glow.addColorStop(0, 'rgba(100,196,218,0)');
+  glow.addColorStop(0.5, 'rgba(100,196,218,.12)');
+  glow.addColorStop(1, 'rgba(100,196,218,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(x+30, y+26, w-60, 3);
+  ctx.restore();
+}
+
+function getEnterAnim(delay, dur){
+  const p = Math.max(0, Math.min(1, (bootAnimT - delay) / dur));
+  const ease = 1 - Math.pow(1 - p, 3);       // ease out cubic
+  return {
+    alpha:   Math.min(1, p * 1.6),
+    offsetY: (1 - ease) * 55,                 // 从下方 55px 滑入
+    scale:   0.72 + ease * 0.28               // 0.72 → 1.0
+  };
+}
+
+function isEndlessUnlocked(){
+  return (stageProgress.stars[1] || 0) > 0;
+}
+
+function layoutMenuButtons(){
+  const MARGIN_BOTTOM = 120;
+  const GAP = 16;
+
+  const widths = {
+    btn_start:   450,
+    btn_history: 300,
+    btn_help:    300
+  };
+
+  const keys = ['btn_start', 'btn_history', 'btn_help'];
+  const rows = [];
+
+  for(const k of keys){
+    const spr = SPRITES[k];
+    const wTarget = widths[k] || 300;
+    let h = 96;
+    if(spr && spr.loaded && spr.img){
+      h = wTarget * (spr.img.height / spr.img.width);
+    }
+    rows.push({ key: k, w: wTarget, h: h });
+  }
+
+  let totalH = 0;
+  for(const r of rows) totalH += r.h;
+  totalH += GAP * (rows.length - 1);
+
+  let cy = H - MARGIN_BOTTOM - totalH;
+  const rects = [MENU_START_BTN, MENU_LB_BTN, MENU_HELP_BTN];
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    const rect = rects[i];
+    rect.x = W/2;
+    rect.y = cy + r.h / 2;
+    rect.w = r.w;
+    rect.h = r.h;
+    cy += r.h + GAP;
+  }
+}
+
+function withEnterAnim(cx, cy, a, fn){
+  ctx.save();
+  ctx.globalAlpha = a.alpha;
+  ctx.translate(cx, cy + a.offsetY);
+  ctx.scale(a.scale, a.scale);
+  ctx.translate(-cx, -cy);
+  fn();
+  ctx.restore();
+}
+
 function drawHelpIcon(type, cx, cy, size){
   const s = size / 2;
   ctx.save();
@@ -9111,8 +9745,8 @@ function drawVictoryScreen(){
 function returnToMenu(){
   recordRun();
   clearProgress();
-  state = 'menu';
-  menuInit();
+  state = 'stagePrep';
+  currentPrepStage=Math.max(1,Math.min(TOTAL_STAGES,stageProgress.unlockedMax||1));
   stopBGM();
   waveCapDisabled = false;
   // 清空世界，防止残留
@@ -10382,12 +11016,17 @@ function render(){
   // 全屏 UI 状态（无游戏世界背景）
   if(state === 'boot'){ drawBootScreen(); return; }
   if(state === 'menu'){ drawMainMenu(); return; }
-  if(state === 'catselect'){ drawCatSelectScreen(); return; }
-  if(state === 'stageSelect'){ drawStageSelectScreen(); return; }
-  if(state === 'weaponSelect'){ drawWeaponSelect(); return; }
+  if(state === 'catselect'){ drawCatSelectScreen(); drawGlobalNav(); return; }
+  if(state === 'stagePrep'){ drawStagePrepScreen(); return; }
+  if(state === 'home'){ drawHomeScreen(); return; }
+  if(state === 'placeholder'){ drawPlaceholderScreen(); return; }
+  if(state === 'catbroCollection'){ drawCatBroCollectionScreen(); drawGlobalNav(); return; }
+  if(state === 'stageSelect'){ drawStageSelectScreen(); drawGlobalNav(); return; }
+  if(state === 'weaponSelect'){ drawWeaponSelect(); drawGlobalNav(); return; }
+  if(state === 'tasks'){ drawTasksScreen(); return; }
   if(state === 'skillTree'){ drawSkillTreeScreen(); return; }
-  if(state === 'help'){ drawHelpScreen(); return; }
-  if(state === 'leaderboard' && lbFrom === 'menu'){ drawLeaderboardScreen(); return; }
+  if(state === 'help'){ drawHelpScreen(); drawGlobalNav(); return; }
+  if(state === 'leaderboard' && lbFrom === 'menu'){ drawLeaderboardScreen(); drawGlobalNav(); return; }
 
   if(!player) return;
 
@@ -10417,6 +11056,22 @@ function render(){
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.maxR * p, 0, TAU); ctx.fill();
     ctx.globalAlpha = 1;
+  }
+
+  // Boss4 地面预警绘制
+  for(const w of bossWarnings){
+    const p = 1 - w.t / w.maxT;
+    const pulse = 0.55 + Math.sin(gameTime*16) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = 0.20 + pulse * 0.25;
+    ctx.fillStyle = '#ff4f4f';
+    ctx.beginPath(); ctx.arc(w.x,w.y,w.r*(0.82+0.10*p),0,TAU); ctx.fill();
+    ctx.globalAlpha = 0.75 + pulse*0.2;
+    ctx.strokeStyle = '#ffcf5c'; ctx.lineWidth = 5;
+    ctx.setLineDash([12,8]);
+    ctx.beginPath(); ctx.arc(w.x,w.y,w.r,0,TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   renderEntityList.length = 0;
@@ -10454,10 +11109,20 @@ function render(){
   }
 
   for(const b of eBullets){
-    ctx.fillStyle = b.dmg > 10 ? '#ff4a4a' : '#a34fe0';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
-    ctx.fillStyle = b.dmg > 10 ? 'rgba(255,180,140,.8)' : 'rgba(220,160,255,.75)';
-    ctx.beginPath(); ctx.arc(b.x - 2, b.y - 2, b.r * 0.42, 0, TAU); ctx.fill();
+    const bossShot=!!b.isBossBullet;
+    const enemyShot=!!b.enemyShot;
+    const col=bossShot?'#ff4a4a':(enemyShot?'#c45cff':'#a34fe0');
+    const glow=bossShot?'rgba(255,110,70,.28)':(enemyShot?'rgba(196,92,255,.25)':'rgba(163,79,224,.22)');
+    const speed=Math.hypot(b.vx,b.vy)||1;
+    const tx=b.x-b.vx/speed*18, ty=b.y-b.vy/speed*18;
+    ctx.save();
+    ctx.strokeStyle=glow; ctx.lineWidth=b.r*1.15; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TAU); ctx.fill();
+    ctx.fillStyle=bossShot?'rgba(255,210,170,.95)':'rgba(235,190,255,.92)';
+    ctx.beginPath(); ctx.arc(b.x-2,b.y-2,b.r*.42,0,TAU); ctx.fill();
+    ctx.restore();
   }
 
   for(const p of particles){
@@ -10539,7 +11204,6 @@ function render(){
     return;
   }
   else if(state === 'buff') drawBuffSelect();
-  else if(state === 'catbro'){ drawHUD(); drawCatBroSelect(); }
   else if(state === 'paused'){ drawHUD(); drawPauseOverlay(); }
   else if(state === 'confirm'){ drawHUD(); drawPauseOverlay(); drawConfirmRestart(); }
   else if(state === 'leaderboard'){ drawLeaderboardScreen(); }
@@ -10571,13 +11235,15 @@ function loop(now){
 }
 
 loadStageProgress();
+loadTaskState();
 loadLeaderboard();
 loadCatPref();
+loadCatBroCollection();
 loadWeaponUnlock();
 loadCurrency();
 loadSkillTree();
 gameTime = 0;
-state = 'menu';
+state = 'boot';
 menuInit();
 requestAnimationFrame(loop);
 
